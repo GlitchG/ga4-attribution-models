@@ -2,7 +2,6 @@
 
 A collection of SQL queries for marketing attribution analysis using Google Analytics 4 (GA4) data in BigQuery. This portfolio project demonstrates different attribution models applied to the public `ga4_obfuscated_sample_ecommerce` dataset.
 
-![GA4 BigQuery](https://i.postimg.cc/zX5DjtcJ/GA4-Big-Query.png)
 
 ---
 
@@ -121,7 +120,7 @@ Exponential decay formula: `weight = 0.5^(days_before_conversion)`. Rewards touc
 **Gleb Baraniuk**  
 Marketing Analytics Consultant  
 📍 Calheta, Madeira, Portugal  
-🔗 [GitHub](https://github.com/GlitchG) | [LLM Wiki](https://github.com/GlitchG/llm_wiki)
+🔗 [GitHub](https://github.com/GlitchG) 
 
 ---
 
