@@ -111,23 +111,3 @@ Exponential decay formula: `weight = 0.5^(days_before_conversion)`. Rewards touc
 ## 🔗 Related Projects
 
 - [Marketing Analytics Sample Reporting](https://github.com/GlitchG/marketing_analytics_sample_reporting) - dbt project for multi-channel ads
-- [BigQuery GA4 Queries](https://github.com/aliasoblomov/Bigquery-GA4-Queries) - Comprehensive GA4 query collection
-
----
-
-## 👤 Author
-
-**Gleb Baraniuk**  
-Marketing Analytics Consultant  
-📍 Calheta, Madeira, Portugal  
-🔗 [GitHub](https://github.com/GlitchG) 
-
----
-
-## 📄 License
-
-MIT License - feel free to use and adapt for your own projects!
-
----
-
-## ⭐ If you find this useful, give it a star!
