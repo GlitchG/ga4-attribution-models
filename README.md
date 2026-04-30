@@ -13,10 +13,13 @@ This repository contains **5 attribution models** and **ecommerce funnel analyse
 | Model | Description | Use Case |
 |-------|-------------|----------|
 | **Last Click** | 100% credit to final touchpoint before conversion | Direct response campaigns |
+| **Last Non-Direct** | 100% credit to last NON-DIRECT touchpoint (ignores direct/none) | Filter out direct traffic |
 | **First Click** | 100% credit to first touchpoint | Brand awareness measurement |
 | **Linear** | Equal credit across all touchpoints | Simple, unbiased view |
 | **Time Decay** | Exponential decay weighting (closer = more credit) | Short sales cycles |
 | **Position-Based** | 40% first + 40% last + 20% middle | Balanced B2B/B2C approach |
+| **Data-Driven (BQ ML)** | ML model learns attribution weights from data | Advanced, data-backed decisions |
+| **Cross-Channel Comparison** | Compare all models side-by-side | Find over/under-valued channels |
 
 ### Ecommerce Analysis (`/ecommerce_funnel`)
 - **Purchase Funnel** - View → Cart → Checkout → Purchase with drop-off rates
@@ -28,28 +31,34 @@ This repository contains **5 attribution models** and **ecommerce funnel analyse
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start (No GCP Keys Required!)
 
-### 1. Prerequisites
-- Google Cloud account with BigQuery enabled
-- Access to `bigquery-public-data.ga4_obfuscated_sample_ecommerce` (public dataset)
+The `bigquery-public-data.ga4_obfuscated_sample_ecommerce` dataset is **public** — anyone with a Google account can query it for free (10GB free tier).
 
-### 2. Usage
+### Option 1: BigQuery Console (Fastest - 2 minutes)
+1. **Open BigQuery Console:** https://console.cloud.google.com/bigquery
+2. **Copy any SQL file** from this repo (e.g., `attribution_models/last_click_attribution.sql`)
+3. **Paste into Query Editor** and click "Run"
+4. **View results** — attribution by channel with conversion counts
 
-1. **Clone this repo:**
-   ```bash
-   git clone https://github.com/GlitchG/ga4-attribution-models.git
-   ```
+### Option 2: Clone & Explore Locally
+```bash
+git clone https://github.com/GlitchG/ga4-attribution-models.git
+cd ga4-attribution-models
+```
 
-2. **Open any SQL file** in BigQuery Console
+Open any `.sql` file in your favorite editor and run in BigQuery Console.
 
-3. **Update date range** (if needed):
-   ```sql
-   DECLARE start_date STRING DEFAULT '20210101';
-   DECLARE end_date STRING DEFAULT '20210131';
-   ```
+### Sample Data Info
+- **Dataset:** `bigquery-public-data.ga4_obfuscated_sample_ecommerce`
+- **Date Range:** December 2020 - January 2021 (modify `DECLARE` statements to explore)
+- **Events:** `purchase`, `page_view`, `begin_checkout`, etc.
+- **No setup required** — just run queries!
 
-4. **Run the query** - results show attribution by channel
+### Try These Queries First:
+1. `attribution_models/last_click_attribution.sql` — Classic attribution model
+2. `ecommerce_funnel/purchase_funnel.sql` — See conversion drop-offs
+3. `attribution_models/cross_channel_comparison.sql` — Compare all models
 
 ---
 
