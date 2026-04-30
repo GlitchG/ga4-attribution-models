@@ -1,0 +1,28 @@
+name: 'ga4_attribution_models'
+version: '1.0.0'
+config-version: 2
+
+profile: 'ga4_attribution_models'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+
+models:
+  ga4_attribution_models:
+    attribution:
+      +materialized: view
+      +schema: attribution
+    ecommerce_funnel:
+      +materialized: view
+      +schema: ecommerce
+    user_journey:
+      +materialized: view
+      +schema: journeys
+    utils:
+      +materialized: ephemeral
+
+vars:
+  ga4_project: 'your-gcp-project'
+  ga4_dataset: 'your-ga4-dataset'
