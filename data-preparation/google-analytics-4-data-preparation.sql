@@ -1,13 +1,37 @@
 -- GA4 Data Preparation — Session-Based Attribution Foundation
--- Extracts session-level source/medium (NOT user-level traffic_source),
--- builds ordered user journeys with channel normalization.
+-- Extracts session-level source/medium and builds ordered user journeys.
 --
--- CRITICAL: source/medium comes from event_params on session_start events.
--- traffic_source is user-level (first touch) — using it repeats the same
--- channel across all sessions. For session-level attribution, use:
+-- ═══════════════════════════════════════════════════════════════════
+-- GA4 BIGQUERY EXPORT: WHICH SOURCE/MEDIUM FIELD TO USE (2026)
+-- ═══════════════════════════════════════════════════════════════════
+--
+-- The GA4 BigQuery export has evolved. Here is the correct approach
+-- depending on your export date and SDK version:
+--
+-- PREFERRED (exports after 2024-07-17):
+--   session_traffic_source_last_click.source
+--   session_traffic_source_last_click.medium
+--   → Session-level, matches GA4 UI reports. No extraction needed.
+--
+-- ALTERNATIVE (exports after June 2023, SDK ≥ Android 17.2.5 / iOS 16.20.0):
+--   collected_traffic_source.source
+--   collected_traffic_source.medium
+--   → Event-level struct, cleaner than UNNEST. Still needs sessionising.
+--
+-- FALLBACK (all exports, including public sample):
 --   (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'source')
--- OR if available in your GA4 export:
---   collected_traffic_source.source / collected_traffic_source.medium
+--   (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium')
+--   → Works on all GA4 exports including the obfuscated public sample.
+--     This is what the queries below use.
+--
+-- NEVER USE (wrong for session attribution):
+--   traffic_source.source / traffic_source.medium
+--   → User-level first-touch. Repeats the same channel across all
+--     sessions for a user. Will make all attribution models identical.
+--
+-- References:
+--   https://support.google.com/analytics/answer/7029846 (BigQuery Export schema)
+--   https://tanelytics.com/ga4-bigquery-session-traffic_source/ (deep dive)
 
 DECLARE start_date STRING DEFAULT '20210101';
 DECLARE end_date STRING DEFAULT '20210131';

@@ -45,7 +45,21 @@ Open any `.sql` file, paste into the [BigQuery console](https://console.cloud.go
 
 To use with your own GA4 export: replace the dataset name with your own `your-project.analytics_NNNNNNNNN`.
 
-For a production pipeline: run `data-preparation/google-analytics-4-data-preparation.sql` first to create base tables, then query from `attribution_journeys` and `attribution_path_rows`.
+For a production pipeline: run `data-preparation/google-analytics-4-data-preparation.sql` first to create base tables, then query from the resulting views.
+
+#### GA4 Export Compatibility
+
+The public sample uses `event_params` extraction (works on all GA4 exports). For your own data, the preferred source/medium field depends on your export date:
+
+| Export date | Best field to use |
+|---|---|
+| After 2024-07-17 | `session_traffic_source_last_click.source/medium` — session-level, matches GA4 UI |
+| After June 2023 | `collected_traffic_source.source/medium` — event-level struct, cleaner than UNNEST |
+| Any date | `event_params` extraction — the approach used in all queries here |
+
+**Never use `traffic_source`** — it contains user-level first-touch data, not session-level attribution data.
+
+See `data-preparation/google-analytics-4-data-preparation.sql` header for detailed documentation with references to the official GA4 BigQuery Export schema.
 
 #### What's in `/dashboard`
 
