@@ -76,8 +76,9 @@ FROM ML.WEIGHTS(MODEL `your_project.your_dataset.attribution_model`)
 WHERE weight IS NOT NULL
 ORDER BY ABS(weight) DESC;
 
--- Step 4: Channel-level attribution using the model
--- Predicts conversion probability per channel and distributes credit proportionally
+-- Step 4: Channel summary (supplementary — not driven by the ML model)
+-- Quick reference showing conversion volume by channel for context
+-- For model-driven attribution, use ML.PREDICT with the trained model above
 WITH channel_summary AS (
   SELECT
     CONCAT(
