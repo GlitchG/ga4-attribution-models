@@ -19,6 +19,8 @@ Each model includes user stitching (pseudo_id to user_id), multi-conversion cycl
 
 There's also `/ecommerce_funnel` for view, cart, checkout, purchase drop-off, and `/user_journey` for top conversion paths.
 
+A full Looker Studio dashboard setup is in `/dashboard` — three custom queries and a setup guide with recommended charts.
+
 #### Running it
 
 The dataset is `bigquery-public-data.ga4_obfuscated_sample_ecommerce` — public, so you can query it from any Google Cloud project. The sample covers December 2020 to January 2021. Two months is small, so the conversion counts are tiny. That's fine for understanding the SQL, not enough for real model comparison.
