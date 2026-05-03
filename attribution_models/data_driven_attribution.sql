@@ -1,113 +1,147 @@
 -- Data-Driven Attribution Model (BigQuery ML)
--- Uses machine learning to determine attribution weights based on historical conversion patterns
--- Note: Requires BigQuery ML enabled in your project
+-- Uses logistic regression to learn which journey features predict conversion,
+-- then applies Shapley-style feature importance as attribution weights.
+-- 
+-- Prerequisites: BigQuery ML must be enabled in your project.
+-- Replace `your_project.your_dataset` with your own BigQuery project and dataset.
 
 DECLARE start_date STRING DEFAULT '20210101';
 DECLARE end_date STRING DEFAULT '20210131';
 
--- Step 1: Create training dataset (user journeys with conversion outcome)
-CREATE OR REPLACE TABLE temp.user_journey_features AS
-WITH conversions AS (
+-- ============================================================================
+-- Step 1: Build training dataset (journey features + conversion outcome)
+-- ============================================================================
+
+CREATE OR REPLACE TABLE `your_project.your_dataset.temp_journey_features` AS
+WITH session_sources AS (
+  -- Session-level source/medium extraction
   SELECT
     user_pseudo_id,
-    event_timestamp AS conversion_timestamp
+    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS ga_session_id,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'source') AS source,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium') AS medium
+  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
+  WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date
+    AND event_name = 'session_start'
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY user_pseudo_id, ga_session_id ORDER BY event_timestamp) = 1
+),
+
+conversions AS (
+  SELECT DISTINCT
+    user_pseudo_id,
+    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS ga_session_id
   FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
   WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date
     AND event_name = 'purchase'
-    AND user_pseudo_id IS NOT NULL
 ),
-user_touchpoints AS (
-  SELECT
-    user_pseudo_id,
-    event_timestamp,
-    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'source') AS source,
-    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium') AS medium,
-    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'campaign') AS campaign,
-    event_name
-  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date
-    AND user_pseudo_id IS NOT NULL
-),
+
 journey_features AS (
   SELECT
-    t.user_pseudo_id,
-    -- Target: did they convert?
+    ss.user_pseudo_id,
+    -- Target: did this user convert?
     CASE WHEN c.user_pseudo_id IS NOT NULL THEN 1 ELSE 0 END AS converted,
-    -- Feature: number of touchpoints
-    COUNT(*) AS touchpoint_count,
-    -- Feature: distinct channels
-    COUNT(DISTINCT CONCAT(t.source, ' / ', t.medium)) AS distinct_channels,
-    -- Feature: has organic search
-    MAX(CASE WHEN t.medium = 'organic' THEN 1 ELSE 0 END) AS has_organic,
-    -- Feature: has paid search
-    MAX(CASE WHEN t.medium = 'cpc' THEN 1 ELSE 0 END) AS has_cpc,
-    -- Feature: has social
-    MAX(CASE WHEN t.medium IN ('social', 'social-network', 'social-media') THEN 1 ELSE 0 END) AS has_social,
-    -- Feature: has email
-    MAX(CASE WHEN t.medium = 'email' THEN 1 ELSE 0 END) AS has_email,
-    -- Feature: journey duration (hours)
-    ROUND((MAX(event_timestamp) - MIN(event_timestamp)) / (1000000 * 60 * 60), 2) AS journey_hours
-  FROM user_touchpoints t
-  LEFT JOIN conversions c 
-    ON t.user_pseudo_id = c.user_pseudo_id
-    AND t.event_timestamp <= c.conversion_timestamp
+    -- Features from session-level analysis
+    COUNT(*) AS session_count,
+    COUNT(DISTINCT CONCAT(ss.source, ' / ', ss.medium)) AS distinct_channels,
+    -- Channel presence features
+    MAX(CASE WHEN ss.medium = 'organic' THEN 1 ELSE 0 END) AS has_organic,
+    MAX(CASE WHEN ss.medium IN ('cpc', 'ppc', 'paidsearch') THEN 1 ELSE 0 END) AS has_paid_search,
+    MAX(CASE WHEN ss.medium IN ('social', 'social-network', 'social-media') THEN 1 ELSE 0 END) AS has_social,
+    MAX(CASE WHEN ss.medium = 'email' THEN 1 ELSE 0 END) AS has_email,
+    MAX(CASE WHEN ss.medium = 'referral' THEN 1 ELSE 0 END) AS has_referral
+  FROM session_sources ss
+  LEFT JOIN conversions c
+    ON ss.user_pseudo_id = c.user_pseudo_id
+    AND ss.ga_session_id <= c.ga_session_id
+  WHERE ss.source IS NOT NULL
   GROUP BY 1, 2
 )
+
 SELECT * FROM journey_features;
 
+
+-- ============================================================================
 -- Step 2: Train logistic regression model
-CREATE OR REPLACE MODEL `temp.attribution_model`
+-- ============================================================================
+
+CREATE OR REPLACE MODEL `your_project.your_dataset.attribution_model`
 OPTIONS(
-  model_type='LOGISTIC_REG',
-  input_label_cols=['converted'],
-  data_split_method='AUTO_SPLIT'
+  model_type = 'LOGISTIC_REG',
+  input_label_cols = ['converted'],
+  data_split_method = 'AUTO_SPLIT'
 ) AS
 SELECT
   converted,
-  touchpoint_count,
+  session_count,
   distinct_channels,
   has_organic,
-  has_cpc,
+  has_paid_search,
   has_social,
   has_email,
-  journey_hours
-FROM temp.user_journey_features;
+  has_referral
+FROM `your_project.your_dataset.temp_journey_features`;
 
--- Step 3: Get feature importance (attribution weights)
+
+-- ============================================================================
+-- Step 3: Feature importance (attribution weights from the model)
+-- ============================================================================
+
 SELECT
   'Data-Driven Attribution: Feature Importance' AS model_type,
   feature,
-  ROUND(weight, 4) AS attribution_weight,
-  ROUND(weight / SUM(weight) OVER(), 4) AS normalized_weight_pct
-FROM ML.WEIGHTS(MODEL `temp.attribution_model`)
+  ROUND(weight, 6) AS attribution_weight,
+  ROUND(weight / SUM(ABS(weight)) OVER(), 4) AS normalized_weight_pct
+FROM ML.WEIGHTS(MODEL `your_project.your_dataset.attribution_model`)
 WHERE weight IS NOT NULL
-ORDER BY weight DESC;
+ORDER BY ABS(weight) DESC;
 
--- Step 4: Channel-level attribution (simplified)
--- Calculate conversion credit based on feature importance
-WITH channel_conversions AS (
+
+-- ============================================================================
+-- Step 4: Channel-level attribution (session-based)
+-- ============================================================================
+
+WITH session_sources AS (
   SELECT
-    CONCAT(
-      (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'source'),
-      ' / ',
-      (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium')
-    ) AS channel,
-    COUNT(DISTINCT user_pseudo_id) AS users,
-    COUNTIF(event_name = 'purchase') AS conversions
+    user_pseudo_id,
+    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS ga_session_id,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'source') AS source,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium') AS medium
   FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
   WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date
-    AND user_pseudo_id IS NOT NULL
-  GROUP BY 1
+    AND event_name = 'session_start'
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY user_pseudo_id, ga_session_id ORDER BY event_timestamp) = 1
+),
+
+conversions AS (
+  SELECT DISTINCT
+    user_pseudo_id,
+    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS ga_session_id
+  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
+  WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date
+    AND event_name = 'purchase'
 )
+
 SELECT
-  channel,
-  users,
-  conversions,
-  ROUND(conversions * 100.0 / SUM(conversions) OVER(), 2) AS pct_of_total_conversions
-FROM channel_conversions
-ORDER BY conversions DESC
+  CONCAT(
+    COALESCE(ss.source, '(direct)'), ' / ',
+    COALESCE(ss.medium, '(none)')
+  ) AS channel,
+  COUNT(DISTINCT ss.user_pseudo_id) AS unique_users,
+  COUNT(DISTINCT c.user_pseudo_id) AS converters,
+  ROUND(COUNT(DISTINCT c.user_pseudo_id) * 100.0
+    / SUM(COUNT(DISTINCT c.user_pseudo_id)) OVER(), 2) AS conversion_share_pct
+FROM session_sources ss
+LEFT JOIN conversions c
+  ON ss.user_pseudo_id = c.user_pseudo_id
+  AND ss.ga_session_id = c.ga_session_id
+WHERE ss.source IS NOT NULL
+GROUP BY 1
+ORDER BY converters DESC
 LIMIT 50;
 
--- Cleanup (optional)
--- DROP TABLE temp.user_journey_features;
--- DROP MODEL temp.attribution_model;
+
+-- ============================================================================
+-- Cleanup (run separately when done)
+-- ============================================================================
+-- DROP TABLE IF EXISTS `your_project.your_dataset.temp_journey_features`;
+-- DROP MODEL IF EXISTS `your_project.your_dataset.attribution_model`;

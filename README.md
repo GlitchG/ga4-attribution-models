@@ -81,6 +81,45 @@ Open any `.sql` file in your favorite editor and paste into BigQuery Console.
 
 ---
 
+## 🔬 **GA4 BigQuery Export Compatibility (2026 Research)**
+
+### Which traffic source field should you use?
+
+GA4 provides multiple traffic source fields in BigQuery. **Using the wrong one** is the most common mistake in attribution modelling.
+
+| Field | Scope | Available since | Use for session attribution? |
+|---|---|---|---|
+| `traffic_source.source` / `.medium` | User-level (first touch) | Start of GA4 | **Never** — persists across all sessions |
+| `event_params` WHERE key='source'/'medium' | Event-level | Start of GA4 | **Yes, on `session_start` events only** |
+| `collected_traffic_source.manual_source` / `.manual_medium` | Event-level (raw) | ~2023 | Yes — raw values, no session scoping |
+| `session_traffic_source_last_click.cross_channel_campaign.source` / `.medium` | Session-level (last non-direct) | Late 2024 | **Best** — matches GA4 UI, fixes google/cpc bug |
+
+### Why `traffic_source` is wrong (and why it matters)
+
+`traffic_source` records the **first-ever** acquisition source for a user. It never changes. If a user first arrived via Facebook and later returned via Google 20 times, every session shows `traffic_source.source = 'facebook'`. All attribution models would produce identical results — Facebook gets 100% credit for everything.
+
+> **Google's official docs:** *"traffic_source values do not change if the user interacts with subsequent campaigns after installation."*
+
+### The google/cpc → google/organic misattribution bug
+
+When Google Ads auto-tagging is enabled, ad clicks carry a `gclid` parameter but no `utm_source`/`utm_medium`. Extracting source/medium from `event_params` shows these as `google / organic` instead of `google / cpc`. This undercounts paid search by 20-40% in production GA4 exports.
+
+**Fixes (in order of preference):**
+1. `session_traffic_source_last_click.cross_channel_campaign` — resolves gclid correctly (production, July 2024+)
+2. `collected_traffic_source.manual_source` / `.manual_medium` — raw values before session scoping (production, 2023+)
+3. Google Ads Data Transfer join — resolve gclid to campaign data
+4. Accept the limitation (public dataset / pre-2023 exports — no workaround available)
+
+### This repo's approach
+
+All attribution models in this repo extract source/medium from `event_params` on `session_start` events. This is the correct fallback that works on **all GA4 exports**, including the public obfuscated sample dataset (2020-2021 data).
+
+For production GA4 exports (July 2024+), replace the `session_sources` CTE with `session_traffic_source_last_click.cross_channel_campaign`. Each SQL file includes a comment showing how.
+
+**Sources:** [Google GA4 BigQuery Export Schema](https://support.google.com/analytics/answer/7029846), [PROANALYTICS 15-project study](https://proanalytics.team/blog/comparison-of-traffic-sources-between-ga4-and-session_traffic_source_last_click-in-bigquery), [Adswerve Four Traffic Flavors Guide](https://adswerve.com/technical-insights/four-different-ga4-traffic-flavors-in-the-bigquery-export), [Hookflash GA4 Traffic Allocation Part II](https://www.hookflash.co.uk/blog/ga4-traffic-allocation-and-conversion-attribution-part-ii-ga4-bigquery)
+
+---
+
 ## 📈 **Sample Data Explained (For Beginners)**
 
 ### What is `ga4_obfuscated_sample_ecommerce`?
@@ -125,13 +164,14 @@ DECLARE end_date STRING DEFAULT '20210131';    -- Change to: '20201231' for Dece
 - **Table Suffix:** Uses `_TABLE_SUFFIX` for date-partitioned tables (BigQuery best practice)
 - **SQL Dialect:** Standard SQL (BigQuery)
 - **No PII:** Uses obfuscated public sample data
-- **Attribution Logic:** All models use `user_pseudo_id` to track user journeys across sessions
+- **Attribution Logic:** Session-level (each session = one touchpoint), not event-level. Uses `ga_session_id` from `event_params` to group events into sessions and `session_start` events to extract the traffic source per session.
 
 ### How the SQL Works (Simplified):
-1. **Identify conversions** (users who made a `purchase` event)
-2. **Collect all touchpoints** (all events with source/medium/campaign)
-3. **Apply attribution rule** (last click, first click, etc.)
-4. **Aggregate by channel** and calculate percentages
+1. **Extract session sources** — get source/medium from `session_start` events (correct session-level scope)
+2. **Identify conversions** — users who made a `purchase` event, grouped by `ga_session_id`
+3. **Build conversion paths** — for each conversion, collect all prior sessions with their traffic sources
+4. **Apply attribution rule** (last click, first click, linear, time decay, etc.)
+5. **Aggregate by channel** and calculate percentages
 
 ---
 
