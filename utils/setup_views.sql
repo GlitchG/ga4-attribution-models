@@ -28,16 +28,12 @@
 -- (Google Ads auto-tagged traffic shows as organic in event_params).
 -- ============================================================================
 
--- Uncomment below for public dataset or older exports:
-
 /*
 WITH session_sources AS (
   SELECT
     user_pseudo_id,
     (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS ga_session_id,
     MIN(event_timestamp) AS session_start_timestamp,
-    -- Source/medium from session_start event_params (correct session-level scope)
-    -- Using ARRAY_AGG + LIMIT 1 to safely extract from session_start events
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'source') AS source,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium') AS medium,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'campaign') AS campaign
@@ -46,7 +42,6 @@ WITH session_sources AS (
     AND event_name = 'session_start'
     AND (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'source') IS NOT NULL
   GROUP BY 1, 2, 3, 4, 5, 6
-  -- Deduplicate: one row per session (session_start can fire multiple times)
   QUALIFY ROW_NUMBER() OVER (PARTITION BY user_pseudo_id, ga_session_id ORDER BY event_timestamp) = 1
 )
 SELECT
@@ -75,8 +70,6 @@ ORDER BY sessions DESC;
 --   - No need to filter for session_start events
 --   - Cheaper to query (no UNNEST on event_params)
 -- ============================================================================
-
--- Uncomment below for GA4 exports after July 2024:
 
 /*
 SELECT
@@ -112,10 +105,6 @@ ORDER BY sessions DESC;
 --   2. collected_traffic_source.manual_source/medium (production, 2023+)
 --   3. JOIN with Google Ads Data Transfer to resolve gclid → campaign data
 --   4. Accept the limitation (public dataset / pre-2023 exports)
---
--- This repo's attribution models use Path A (event_params) for broad
--- compatibility with the public dataset. For production GA4 exports, switch
--- to Path B.
 -- ============================================================================
 
 

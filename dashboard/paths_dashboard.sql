@@ -1,5 +1,6 @@
--- User Path Analysis
--- Shows the most common conversion paths (sequence of source/medium touchpoints leading to purchase)
+-- Conversion Paths Dashboard Query
+-- Most common source/medium sequences leading to purchase.
+-- Paste into Looker Studio as a Custom Query data source.
 
 DECLARE start_date STRING DEFAULT '20210101';
 DECLARE end_date STRING DEFAULT '20210131';
@@ -13,11 +14,10 @@ WITH conversions AS (
   WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date
     AND event_name = 'purchase'
 ),
--- Only acquisition touchpoints (events with source/medium) before each conversion
 user_journey AS (
   SELECT
     c.user_pseudo_id,
-    c.session_id AS conversion_session_id,
+    c.session_id,
     STRING_AGG(
       CONCAT(
         (SELECT value.string_value FROM UNNEST(e.event_params) WHERE key = 'source'),
@@ -25,7 +25,7 @@ user_journey AS (
         (SELECT value.string_value FROM UNNEST(e.event_params) WHERE key = 'medium')
       )
       ORDER BY e.event_timestamp
-      LIMIT 20  -- Cap path length to avoid overly long strings
+      LIMIT 10
       SEPARATOR ' → '
     ) AS conversion_path,
     COUNT(*) AS touchpoint_count
@@ -40,9 +40,10 @@ user_journey AS (
 )
 SELECT
   conversion_path,
-  COUNT(*) AS path_count,
-  ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) AS path_pct
+  COUNT(*) AS conversions,
+  ROUND(AVG(touchpoint_count), 1) AS avg_touchpoints,
+  ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) AS pct_of_total
 FROM user_journey
 GROUP BY 1
-ORDER BY path_count DESC
-LIMIT 50;
+ORDER BY conversions DESC
+LIMIT 20;

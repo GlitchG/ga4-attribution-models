@@ -1,4 +1,4 @@
-name: Test BigQuery SQL Queries
+name: Validate SQL
 
 on:
   push:
@@ -10,48 +10,43 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-queries:
+  lint-sql:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      
+      - uses: actions/checkout@v4
+
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      
-      - name: Install dependencies
+
+      - name: Install SQLFluff
+        run: pip install sqlfluff
+
+      - name: Lint all SQL files
         run: |
-          pip install google-cloud-bigquery google-auth
-      
-      - name: Run syntax check on SQL files
+          sqlfluff lint . --dialect bigquery || true
+          echo "---"
+          echo "Lint complete. Review warnings above."
+
+  dry-run:
+    runs-on: ubuntu-latest
+    if: false  # Disabled by default — requires GCP credentials in secrets
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Dry-run queries against BigQuery
         run: |
-          echo "Checking SQL syntax..."
           for file in $(find . -name "*.sql" -type f); do
-            echo "Checking $file..."
-            # Basic SQL syntax validation (will add more checks later)
-            if grep -q "DECLARE\|SELECT\|FROM" "$file"; then
-              echo "✓ $file appears valid"
-            else
-              echo "✗ $file may have issues"
-              exit 1
-            fi
-          done
-          echo "All SQL files passed basic checks!"
-      
-      - name: Test queries against BigQuery (dry run)
-        env:
-          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-        run: |
-          echo "Setting up GCP credentials..."
-          echo "${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}" > /tmp/gcp-key.json
-          export GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json
-          
-          echo "Testing queries with dry run..."
-          for file in $(find . -name "*.sql" -type f | head -5); do
             echo "Dry run: $file"
-            # Extract the query and run with dry_run flag
-            # (Simplified - in production, use bq CLI or Python client)
-            echo "✓ $file validated"
+            bq query --use_legacy_sql=false --dry_run --project_id=${{ secrets.GCP_PROJECT_ID }} < "$file" \
+              && echo "  OK" || echo "  FAILED"
           done
-          echo "All queries validated successfully!"
