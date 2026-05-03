@@ -61,7 +61,8 @@ Include:
 
 Open an issue or reach out:
 - GitHub: [@GlitchG](https://github.com/GlitchG)
-- Portfolio: [Marketing Analytics Projects](https://github.com/GlitchG)
+- Telegram: [@GlitchG](https://t.me/glitch_g)
+- [LinkedIn](https://www.linkedin.com/in/glebads)
 
 ---
 
