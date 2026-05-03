@@ -14,7 +14,7 @@ Each model includes user stitching (pseudo_id to user_id), multi-conversion cycl
 | Linear | Equal credit across all touchpoints | Unbiased baseline; doesn't reflect that some touchpoints matter more |
 | Time decay | Closer to conversion = more credit (half-life 7 days) | Short cycles; rewards channels that close |
 | Position-based | 40% first + 40% last + 20% middle | Balanced view; common middle ground |
-| Data-driven (BQ ML) | Logistic regression learns weights from your data | When you have 500+ conversions and want something tailored |
+| Data-driven (BQ ML) | Shapley-style marginal contribution — trains model, then removes each channel to measure impact | When you have 500+ conversions and want model-driven attribution, not rules-based |
 | Cross-channel comparison | Six models side by side | The most useful one — shows where the choice of model changes the story |
 
 There's also `/ecommerce_funnel` for view, cart, checkout, purchase drop-off, and `/user_journey` for top conversion paths.
