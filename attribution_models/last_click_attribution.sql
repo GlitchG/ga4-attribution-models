@@ -1,60 +1,88 @@
 -- Last Click Attribution Model
--- Assigns 100% credit to the last non-direct touchpoint before conversion
+-- Assigns 100% credit to the last touchpoint before conversion
+-- Features: user stitching (pseudo_id → user_id), multi-conversion cycles, 30-day lookback
 
 DECLARE start_date STRING DEFAULT '20210101';
 DECLARE end_date STRING DEFAULT '20210131';
 
-WITH conversions AS (
+WITH all_events AS (
   SELECT
     user_pseudo_id,
-    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS session_id,
-    event_timestamp,
-    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_number') AS session_number
-  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date
-    AND event_name = 'purchase'
-),
-all_events AS (
-  SELECT
-    user_pseudo_id,
-    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS session_id,
-    event_timestamp,
+    user_id,
     event_name,
+    event_timestamp,
+    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS session_id,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'source') AS source,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium') AS medium,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'campaign') AS campaign
   FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
   WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date
 ),
+-- Map each pseudo_id to its latest known user_id (user stitching)
+user_stitching AS (
+  SELECT DISTINCT
+    user_pseudo_id,
+    LAST_VALUE(user_id IGNORE NULLS) OVER (
+      PARTITION BY user_pseudo_id ORDER BY event_timestamp
+      ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+    ) AS blended_user_id
+  FROM all_events
+),
+-- Conversions with blended user_id, numbered chronologically per user
+conversions AS (
+  SELECT
+    e.user_pseudo_id,
+    u.blended_user_id,
+    e.session_id,
+    e.event_timestamp AS conversion_timestamp,
+    ROW_NUMBER() OVER (PARTITION BY u.blended_user_id ORDER BY e.event_timestamp) AS conversion_number,
+    LAG(e.event_timestamp) OVER (PARTITION BY u.blended_user_id ORDER BY e.event_timestamp) AS prev_conversion_timestamp
+  FROM all_events e
+  JOIN user_stitching u ON e.user_pseudo_id = u.user_pseudo_id
+  WHERE e.event_name = 'purchase'
+),
+-- Touchpoints with blended user_id
+touchpoints AS (
+  SELECT
+    e.user_pseudo_id,
+    u.blended_user_id,
+    e.event_timestamp,
+    e.source,
+    e.medium,
+    e.campaign
+  FROM all_events e
+  JOIN user_stitching u ON e.user_pseudo_id = u.user_pseudo_id
+  WHERE e.source IS NOT NULL
+),
 last_touch AS (
   SELECT
-    c.user_pseudo_id,
+    c.blended_user_id,
     c.session_id AS conversion_session_id,
-    c.event_timestamp AS conversion_timestamp,
+    c.conversion_timestamp,
+    c.conversion_number,
     ARRAY_AGG(
-      STRUCT(
-        e.source,
-        e.medium,
-        e.campaign,
-        e.event_timestamp
-      )
-      ORDER BY e.event_timestamp DESC
+      STRUCT(t.source, t.medium, t.campaign, t.event_timestamp)
+      ORDER BY t.event_timestamp DESC
       LIMIT 1
     )[OFFSET(0)] AS last_touchpoint
   FROM conversions c
-  LEFT JOIN all_events e
-    ON c.user_pseudo_id = e.user_pseudo_id
-    AND e.event_timestamp <= c.event_timestamp
-  WHERE e.source IS NOT NULL
-  GROUP BY 1, 2, 3
+  JOIN touchpoints t
+    ON c.blended_user_id = t.blended_user_id
+    AND t.event_timestamp <= c.conversion_timestamp
+    -- Touchpoint must be after previous conversion (conversion cycle boundary)
+    AND (c.prev_conversion_timestamp IS NULL OR t.event_timestamp > c.prev_conversion_timestamp)
+    -- 30-day lookback window
+    AND t.event_timestamp >= c.conversion_timestamp - (30 * 24 * 60 * 60 * 1000000)
+  GROUP BY 1, 2, 3, 4
 )
 SELECT
   last_touchpoint.source,
   last_touchpoint.medium,
   last_touchpoint.campaign,
   COUNT(*) AS conversions,
-  ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) AS conversion_rate_pct
+  ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) AS attribution_pct
 FROM last_touch
+WHERE last_touchpoint.source IS NOT NULL
 GROUP BY 1, 2, 3
 ORDER BY conversions DESC
 LIMIT 50;

@@ -1,5 +1,5 @@
 -- User Path Analysis
--- Shows common conversion paths (sequence of touchpoints)
+-- Shows the most common conversion paths (sequence of source/medium touchpoints leading to purchase)
 
 DECLARE start_date STRING DEFAULT '20210101';
 DECLARE end_date STRING DEFAULT '20210131';
@@ -13,6 +13,7 @@ WITH conversions AS (
   WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date
     AND event_name = 'purchase'
 ),
+-- Only acquisition touchpoints (events with source/medium) before each conversion
 user_journey AS (
   SELECT
     c.user_pseudo_id,
@@ -24,6 +25,7 @@ user_journey AS (
         (SELECT value.string_value FROM UNNEST(e.event_params) WHERE key = 'medium')
       )
       ORDER BY e.event_timestamp
+      LIMIT 20  -- Cap path length to avoid overly long strings
       SEPARATOR ' → '
     ) AS conversion_path,
     COUNT(*) AS touchpoint_count
@@ -31,6 +33,7 @@ user_journey AS (
   JOIN `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*` e
     ON c.user_pseudo_id = e.user_pseudo_id
     AND e.event_timestamp <= c.conversion_timestamp
+    AND e.event_timestamp >= c.conversion_timestamp - (30 * 24 * 60 * 60 * 1000000)
   WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date
     AND (SELECT value.string_value FROM UNNEST(e.event_params) WHERE key = 'source') IS NOT NULL
   GROUP BY 1, 2
