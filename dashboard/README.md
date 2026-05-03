@@ -1,6 +1,6 @@
-# Looker Studio Dashboard Setup
+# Looker Studio Dashboard Setup (Session-Based)
 
-Three dashboard queries are ready to paste directly into Looker Studio as Custom Query data sources. No views, tables, or scheduled queries needed — everything runs live against BigQuery.
+Three dashboard queries ready to paste directly into Looker Studio as Custom Query data sources. No views, tables, or scheduled queries needed — everything runs live against BigQuery.
 
 ## Quick Start
 
@@ -8,7 +8,7 @@ Three dashboard queries are ready to paste directly into Looker Studio as Custom
 2. Create a new report
 3. Add data → **BigQuery** → **Custom Query**
 4. Paste one of the queries below into the query editor
-5. Choose your billing project (any GCP project with BigQuery enabled — free tier is fine)
+5. Choose your billing project (any GCP project with BigQuery enabled)
 6. Click **Add**
 
 Repeat for each query to build a multi-page dashboard.
@@ -17,65 +17,58 @@ Repeat for each query to build a multi-page dashboard.
 
 | Query file | What it returns | Use for |
 |---|---|---|
-| `dashboard/attribution_dashboard.sql` | 6 attribution models × channel matrix | Bar charts, heatmaps, channel comparison |
-| `dashboard/funnel_dashboard.sql` | Ecommerce funnel stages with drop-off | Funnel chart, scorecards |
-| `dashboard/paths_dashboard.sql` | Top conversion paths with frequency | Table, treemap, sankey (if available) |
-
----
+| `attribution_dashboard.sql` | 6 attribution models × channel matrix | Bar charts, heatmaps, channel comparison |
+| `funnel_dashboard.sql` | Ecommerce funnel stages with drop-off | Funnel chart, scorecards |
+| `paths_dashboard.sql` | Top 20 conversion paths with frequency | Table, treemap |
 
 ## Recommended Dashboard Layout
 
 ### Page 1: Attribution Overview
 
-**Chart 1 — Bar chart: Conversions by Channel (side-by-side)**
+**Chart 1 — Clustered Bar: Conversions by Channel**
 - Dimension: `channel`
 - Metric: `attributed_conversions`
 - Breakdown dimension: `model`
-- Chart type: Clustered bar chart
-- Sort: Descending by Last Click
-- This shows which channels get over/under-credited depending on the model
+- Sort: descending by Last Click
+- Shows which channels get over/under-credited by different models
 
 **Chart 2 — Heatmap Table: Channel × Model matrix**
 - Rows: `channel`
 - Columns: `model`
 - Metric: `attribution_pct`
 - Colour scale: white → dark blue
-- Makes it instantly obvious where models disagree
+- Instantly shows where models disagree
 
 **Chart 3 — Scorecard: Total Conversions**
-- Metric: `SUM(model_total_conversions)` (or pick one model's total)
-- Filter: model = 'Last Click'
+- Metric: `SUM(attributed_conversions)` with filter `model = 'Last Click'`
 
 **Chart 4 — Bar chart: Variance from Last Click**
-- Create a calculated field: `attribution_pct - SUM(CASE WHEN model = 'Last Click' THEN attribution_pct ELSE 0 END) OVER (PARTITION BY channel)`
-- Shows how much each model diverges from the default
+- Calculated field: `attribution_pct - SUM(CASE WHEN model = 'Last Click' THEN attribution_pct ELSE 0 END) OVER (PARTITION BY channel)`
+- Red bars = model gives less credit than last click; blue = more credit
 
 ### Page 2: Conversion Funnel
 
 **Chart 5 — Funnel chart**
 - Dimension: `step` (sorted: View Item → Add to Cart → Begin Checkout → Purchase)
 - Metric: `users`
-- Chart type: Funnel (or bar chart if funnel widget unavailable)
+- Chart type: Funnel or bar chart
 
-**Chart 6 — Scorecards for drop-off rates**
-- Metric: `1 - (purchase_users / view_item_users)` as overall abandonment rate
-- Metric: `cart_abandonment_rate` from `cart_abandonment.sql`
+**Chart 6 — Scorecards**
+- Overall conversion rate: `purchase_users / view_item_users`
+- Cart abandonment: from `ecommerce_funnel/cart_abandonment.sql`
 
 ### Page 3: Conversion Paths
 
-**Chart 7 — Table: Top Conversion Paths**
+**Chart 7 — Table: Top Paths**
 - Rows: `conversion_path`
 - Metrics: `conversions`, `pct_of_total`, `avg_touchpoints`
-- Sort: by conversions descending
 
-**Chart 8 — Scorecard: Average touchpoints to conversion**
-- Metric: `AVG(avg_touchpoints)`
-
----
+**Chart 8 — Scorecard**
+- Average sessions to conversion: `AVG(avg_touchpoints)`
 
 ## Notes
 
-- The public GA4 sample has very few purchases (~100 over 2 months). Most charts will show sparse data. The dashboard proves the pipeline works — to see meaningful patterns, point it at your own GA4 export.
-- To switch datasets, replace `bigquery-public-data.ga4_obfuscated_sample_ecommerce` with your own `your-project.analytics_NNNNNNNNN` in all three query files.
-- Change the `DECLARE` dates at the top of each query to adjust the reporting period.
-- For production use, create BigQuery views from these queries and schedule a daily refresh. Connect Looker Studio to the views instead of custom queries for faster load times.
+- The public GA4 sample is sparse (~100 purchases over 2 months). Charts will show limited data. To see meaningful patterns, point at your own GA4 export.
+- To switch datasets, replace `bigquery-public-data.ga4_obfuscated_sample_ecommerce` with your own `your-project.analytics_NNNNNNNNN`.
+- Change `DECLARE` dates at the top of each query to adjust the reporting period.
+- For production: run `data-preparation/google-analytics-4-data-preparation.sql` first, then connect Looker Studio to the resulting `attribution_mart` table for faster loads.

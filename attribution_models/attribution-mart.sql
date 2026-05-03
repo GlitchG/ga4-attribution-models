@@ -1,10 +1,12 @@
--- Unified Attribution Dashboard Query (Session-Based)
--- Paste into Looker Studio as a Custom Query data source.
--- Output: one row per (model, channel) with attributed conversions.
--- Models: Last Click, First Click, Last Non-Direct, Linear, Time Decay, U-Shaped.
+-- Attribution Mart — Unified Output Table
+-- Creates a single table with all attribution model results in a dashboard-ready format.
+-- Output schema: channel, model, attributed_conversions
+-- Connect Looker Studio directly to this table.
 
 DECLARE start_date STRING DEFAULT '20210101';
 DECLARE end_date STRING DEFAULT '20210131';
+
+CREATE OR REPLACE TABLE `your_project.your_dataset.attribution_mart` AS
 
 WITH sessions AS (
   SELECT
@@ -56,21 +58,49 @@ journey_sessions AS (
    AND (c.prev_conversion_ts IS NULL OR s.session_start > c.prev_conversion_ts)
    AND s.session_start >= TIMESTAMP_SUB(c.conversion_ts, INTERVAL 30 DAY)
 ),
-m1 AS (SELECT channel, 'Last Click' AS model, COUNT(*) AS conversions FROM journey_sessions WHERE pos_desc = 1 GROUP BY 1),
-m2 AS (SELECT channel, 'First Click' AS model, COUNT(*) AS conversions FROM journey_sessions WHERE pos_asc = 1 GROUP BY 1),
-m3 AS (SELECT channel, 'Last Non-Direct' AS model, COUNT(*) AS conversions FROM (SELECT user_pseudo_id, conversion_number, channel, ROW_NUMBER() OVER (PARTITION BY user_pseudo_id, conversion_number ORDER BY CASE WHEN channel = 'Direct' THEN 1 ELSE 0 END, pos_desc) AS rn FROM journey_sessions) WHERE rn = 1 GROUP BY 1),
-m4 AS (SELECT channel, 'Linear' AS model, SUM(1.0 / total_sessions) AS conversions FROM journey_sessions GROUP BY 1),
-m5 AS (SELECT channel, 'Time Decay' AS model, SUM(EXP(-0.1 * hours_before) / NULLIF(SUM(EXP(-0.1 * hours_before)) OVER (PARTITION BY user_pseudo_id, conversion_number), 0)) AS conversions FROM journey_sessions GROUP BY 1),
-m6 AS (SELECT channel, 'U-Shaped' AS model, SUM(CASE WHEN total_sessions = 1 THEN 1.0 WHEN total_sessions = 2 THEN 0.5 WHEN pos_asc = 1 THEN 0.4 WHEN pos_desc = 1 THEN 0.4 ELSE 0.2 / (total_sessions - 2) END) AS conversions FROM journey_sessions GROUP BY 1),
-unified AS (
-  SELECT * FROM m1 UNION ALL SELECT * FROM m2 UNION ALL SELECT * FROM m3
-  UNION ALL SELECT * FROM m4 UNION ALL SELECT * FROM m5 UNION ALL SELECT * FROM m6
+
+-- Model 1: Last Click
+m1 AS (
+  SELECT channel, 'Last Click' AS model, COUNT(*) AS attributed_conversions
+  FROM journey_sessions WHERE pos_desc = 1 GROUP BY 1
+),
+-- Model 2: First Click
+m2 AS (
+  SELECT channel, 'First Click' AS model, COUNT(*) AS attributed_conversions
+  FROM journey_sessions WHERE pos_asc = 1 GROUP BY 1
+),
+-- Model 3: Last Non-Direct
+m3 AS (
+  SELECT channel, 'Last Non-Direct' AS model, COUNT(*) AS attributed_conversions
+  FROM (
+    SELECT user_pseudo_id, conversion_number, channel,
+      ROW_NUMBER() OVER (PARTITION BY user_pseudo_id, conversion_number
+        ORDER BY CASE WHEN channel = 'Direct' THEN 1 ELSE 0 END, pos_desc) AS rn
+    FROM journey_sessions
+  ) WHERE rn = 1 GROUP BY 1
+),
+-- Model 4: Linear
+m4 AS (
+  SELECT channel, 'Linear' AS model, SUM(1.0 / total_sessions) AS attributed_conversions
+  FROM journey_sessions GROUP BY 1
+),
+-- Model 5: Time Decay
+m5 AS (
+  SELECT channel, 'Time Decay' AS model,
+    SUM(EXP(-0.1 * hours_before) / NULLIF(SUM(EXP(-0.1 * hours_before)) OVER (PARTITION BY user_pseudo_id, conversion_number), 0)) AS attributed_conversions
+  FROM journey_sessions GROUP BY 1
+),
+-- Model 6: U-Shaped
+m6 AS (
+  SELECT channel, 'U-Shaped' AS model,
+    SUM(CASE
+      WHEN total_sessions = 1 THEN 1.0 WHEN total_sessions = 2 THEN 0.5
+      WHEN pos_asc = 1 THEN 0.4 WHEN pos_desc = 1 THEN 0.4
+      ELSE 0.2 / (total_sessions - 2) END
+    ) AS attributed_conversions
+  FROM journey_sessions GROUP BY 1
 )
-SELECT
-  model,
-  channel,
-  ROUND(conversions, 4) AS attributed_conversions,
-  ROUND(conversions * 100.0 / SUM(conversions) OVER (PARTITION BY model), 2) AS attribution_pct,
-  SUM(conversions) OVER (PARTITION BY model) AS model_total
-FROM unified
+
+SELECT * FROM m1 UNION ALL SELECT * FROM m2 UNION ALL SELECT * FROM m3
+UNION ALL SELECT * FROM m4 UNION ALL SELECT * FROM m5 UNION ALL SELECT * FROM m6
 ORDER BY model, attributed_conversions DESC;
