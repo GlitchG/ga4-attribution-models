@@ -1,6 +1,6 @@
 -- Last Click Attribution Model (Session-Based)
 -- Assigns 100% credit to the last session before conversion.
--- Handles Direct correctly: Direct gets credit only when it is the last session.
+-- Uses ARRAY_REVERSE for clean last-element access with SAFE_OFFSET fallback.
 
 DECLARE start_date STRING DEFAULT '20210101';
 DECLARE end_date STRING DEFAULT '20210131';
@@ -9,66 +9,64 @@ WITH sessions AS (
   SELECT
     user_pseudo_id,
     (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS session_id,
-    MIN(TIMESTAMP_MICROS(event_timestamp)) AS session_start,
-    IFNULL(ANY_VALUE(traffic_source.source), '(direct)') AS source,
-    IFNULL(ANY_VALUE(traffic_source.medium), '(none)') AS medium,
+    event_timestamp AS session_start_micros,
+    COALESCE((SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'source'), '(direct)') AS source,
+    COALESCE((SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium'), '(none)') AS medium,
     CASE
-      WHEN ANY_VALUE(traffic_source.medium) = 'cpc' THEN 'Paid Search'
-      WHEN ANY_VALUE(traffic_source.medium) = 'organic' THEN 'Organic Search'
-      WHEN LOWER(ANY_VALUE(traffic_source.medium)) LIKE '%social%' THEN 'Social'
-      WHEN ANY_VALUE(traffic_source.medium) = 'email' THEN 'Email'
-      WHEN ANY_VALUE(traffic_source.medium) = 'referral' THEN 'Referral'
-      WHEN ANY_VALUE(traffic_source.medium) = '(none)' THEN 'Direct'
-      WHEN ANY_VALUE(traffic_source.medium) IS NULL THEN 'Direct'
-      ELSE CONCAT(IFNULL(ANY_VALUE(traffic_source.source), '(direct)'), ' / ', IFNULL(ANY_VALUE(traffic_source.medium), '(none)'))
+      WHEN COALESCE((SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium'), '(none)') IN ('cpc', 'ppc', 'paidsearch') THEN 'Paid Search'
+      WHEN COALESCE((SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium'), '(none)') = 'organic' THEN 'Organic Search'
+      WHEN LOWER(COALESCE((SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium'), '')) LIKE '%social%' THEN 'Social'
+      WHEN COALESCE((SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium'), '(none)') = 'email' THEN 'Email'
+      WHEN COALESCE((SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium'), '(none)') IN ('display', 'banner') THEN 'Display'
+      WHEN COALESCE((SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium'), '(none)') IN ('(none)', '') THEN 'Direct'
+      ELSE CONCAT(COALESCE((SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'source'), '(direct)'), ' / ', COALESCE((SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium'), '(none)'))
     END AS channel
   FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
   WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date
     AND event_name = 'session_start'
-  GROUP BY 1, 2
+    AND (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY user_pseudo_id, session_id ORDER BY event_timestamp) = 1
 ),
 conversions AS (
   SELECT
     user_pseudo_id,
     TIMESTAMP_MICROS(event_timestamp) AS conversion_ts,
-    ROW_NUMBER() OVER (PARTITION BY user_pseudo_id ORDER BY event_timestamp) AS conversion_number,
-    LAG(TIMESTAMP_MICROS(event_timestamp)) OVER (PARTITION BY user_pseudo_id ORDER BY event_timestamp) AS prev_conversion_ts
+    ROW_NUMBER() OVER (PARTITION BY user_pseudo_id ORDER BY event_timestamp) AS conversion_id
   FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
   WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date
     AND event_name = 'purchase'
 ),
-journey_sessions AS (
+journeys AS (
   SELECT
     c.user_pseudo_id,
     c.conversion_ts,
-    c.conversion_number,
-    s.channel,
-    ROW_NUMBER() OVER (
-      PARTITION BY c.user_pseudo_id, c.conversion_number
-      ORDER BY s.session_start DESC
-    ) AS reverse_position
+    c.conversion_id,
+    ARRAY_AGG(
+      STRUCT(s.channel)
+      ORDER BY s.session_start_micros
+    ) AS path
   FROM conversions c
   JOIN sessions s
     ON c.user_pseudo_id = s.user_pseudo_id
-   AND s.session_start <= c.conversion_ts
-   AND (c.prev_conversion_ts IS NULL OR s.session_start > c.prev_conversion_ts)
-   AND s.session_start >= TIMESTAMP_SUB(c.conversion_ts, INTERVAL 30 DAY)
+   AND TIMESTAMP_MICROS(s.session_start_micros) <= c.conversion_ts
+   AND TIMESTAMP_MICROS(s.session_start_micros) >= TIMESTAMP_SUB(c.conversion_ts, INTERVAL 30 DAY)
+  GROUP BY 1, 2, 3
 ),
--- Last click = session closest to conversion (reverse_position = 1)
 last_touch AS (
   SELECT
     user_pseudo_id,
-    conversion_ts,
-    conversion_number,
-    channel AS attributed_channel
-  FROM journey_sessions
-  WHERE reverse_position = 1
+    conversion_id,
+    -- ARRAY_REVERSE: last session becomes first, SAFE_OFFSET(0) gets it
+    ARRAY_REVERSE(path)[SAFE_OFFSET(0)].channel AS attributed_channel
+  FROM journeys
+  WHERE ARRAY_LENGTH(path) > 0
 )
 SELECT
   attributed_channel AS channel,
   COUNT(*) AS attributed_conversions,
   ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) AS attribution_pct
 FROM last_touch
+WHERE attributed_channel IS NOT NULL
 GROUP BY 1
 ORDER BY attributed_conversions DESC
 LIMIT 50;
