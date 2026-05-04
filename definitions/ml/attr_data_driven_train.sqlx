@@ -34,7 +34,7 @@ CREATE OR REPLACE TABLE ${self()} AS (
 );
 
 -- Train logistic regression model
-CREATE OR REPLACE MODEL ${ref("ml", "attr_data_driven_model")}
+CREATE OR REPLACE MODEL `${dataform.projectConfig.defaultDatabase}.ml.attr_data_driven_model`
 OPTIONS(
   model_type = 'LOGISTIC_REG',
   input_label_cols = ['converted'],
