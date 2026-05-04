@@ -50,8 +50,7 @@ definitions/
 
 includes/
 ├── channel_grouping.js               -- DRY 8-channel CASE logic
-├── source_resolution.js              -- DRY GA4 source resolution
-└── ga4_source_table.js               -- DRY table reference
+└── source_resolution.js              -- DRY GA4 source resolution
 ```
 
 #### The eight models
