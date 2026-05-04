@@ -34,7 +34,7 @@ WITH session_event_traffic AS (
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'campaign') AS campaign,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'content') AS content,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'term') AS term
-  FROM ${ref("sources", "ga4_events")}
+  FROM ${ref("events_*")}
   WHERE _TABLE_SUFFIX
     ${when(incremental(),
       `BETWEEN FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY)) AND FORMAT_DATE('%Y%m%d', CURRENT_DATE())`,

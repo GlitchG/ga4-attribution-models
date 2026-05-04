@@ -58,7 +58,7 @@ WITH raw_conversions AS (
     -- Session linkage
     (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS session_id
 
-  FROM ${ref("sources", "ga4_events")}
+  FROM ${ref("events_*")}
   WHERE _TABLE_SUFFIX
     ${when(incremental(),
       `BETWEEN FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY)) AND FORMAT_DATE('%Y%m%d', CURRENT_DATE())`,
