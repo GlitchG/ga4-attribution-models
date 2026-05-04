@@ -1,6 +1,6 @@
 -- Data-Driven Attribution Model (BigQuery ML)
 -- Trains a logistic regression model on user journey features, then uses marginal
--- contribution analysis (Shapley-style) to attribute conversion credit to channels.
+-- contribution analysis (feature-ablation attribution) to attribute conversion credit to channels.
 -- Requires BigQuery ML enabled in your project.
 -- Note: the public GA4 sample has very few conversions; this model needs 500+ to produce reliable weights.
 
@@ -41,6 +41,10 @@ journey_features AS (
     MAX(CASE WHEN t.medium = 'cpc' THEN 1 ELSE 0 END) AS has_cpc,
     MAX(CASE WHEN t.medium IN ('social', 'social-network', 'social-media') THEN 1 ELSE 0 END) AS has_social,
     MAX(CASE WHEN t.medium = 'email' THEN 1 ELSE 0 END) AS has_email,
+    MAX(CASE WHEN t.medium IN ('display', 'banner') THEN 1 ELSE 0 END) AS has_display,
+    MAX(CASE WHEN t.medium = 'referral' THEN 1 ELSE 0 END) AS has_referral,
+    MAX(CASE WHEN t.medium = 'affiliate' THEN 1 ELSE 0 END) AS has_affiliate,
+    MAX(CASE WHEN COALESCE(t.medium, '(none)') IN ('(none)', '') THEN 1 ELSE 0 END) AS has_direct,
     ROUND((MAX(event_timestamp) - MIN(event_timestamp)) / (1000000 * 60 * 60), 2) AS journey_hours
   FROM user_touchpoints t
   LEFT JOIN conversions c
@@ -67,6 +71,10 @@ SELECT
   has_cpc,
   has_social,
   has_email,
+  has_display,
+  has_referral,
+  has_affiliate,
+  has_direct,
   journey_hours
 FROM `your_project.your_dataset.user_journey_features`;
 
@@ -87,10 +95,15 @@ WHERE weight IS NOT NULL
 ORDER BY ABS(weight) DESC;
 
 -- ============================================================================
--- STEP 4: Data-driven attribution (Shapley-style marginal contribution)
+-- STEP 4: Data-driven attribution (feature-ablation marginal contribution)
 -- For each converting user: predict with all channels, then remove each channel
 -- one at a time and measure the drop in predicted conversion probability.
 -- The drop = that channel's marginal contribution. Normalise per user.
+--
+-- NOTE: This is NOT Shapley value attribution. It is a single-pass feature
+-- ablation (remove one feature at a time from the full set). True Shapley
+-- requires evaluating all 2^N subsets, which is computationally expensive in SQL.
+-- For a proper Shapley implementation, use a dedicated library or export to Python.
 -- ============================================================================
 WITH converting_users AS (
   SELECT * FROM `your_project.your_dataset.user_journey_features`
@@ -100,7 +113,7 @@ WITH converting_users AS (
 full_pred AS (
   SELECT
     user_pseudo_id,
-    predicted_converted_probs[OFFSET(0)].prob AS full_prob
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS full_prob
   FROM ML.PREDICT(MODEL `your_project.your_dataset.attribution_model`,
     (SELECT * FROM converting_users)
   )
@@ -109,10 +122,10 @@ full_pred AS (
 no_organic_pred AS (
   SELECT
     user_pseudo_id,
-    predicted_converted_probs[OFFSET(0)].prob AS prob_no_organic
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_no_organic
   FROM ML.PREDICT(MODEL `your_project.your_dataset.attribution_model`,
     (SELECT user_pseudo_id, touchpoint_count, distinct_channels,
-            0 AS has_organic, has_cpc, has_social, has_email, journey_hours
+            0 AS has_organic, has_cpc, has_social, has_email, has_display, has_referral, has_affiliate, has_direct, journey_hours
      FROM converting_users)
   )
 ),
@@ -120,10 +133,10 @@ no_organic_pred AS (
 no_cpc_pred AS (
   SELECT
     user_pseudo_id,
-    predicted_converted_probs[OFFSET(0)].prob AS prob_no_cpc
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_no_cpc
   FROM ML.PREDICT(MODEL `your_project.your_dataset.attribution_model`,
     (SELECT user_pseudo_id, touchpoint_count, distinct_channels,
-            has_organic, 0 AS has_cpc, has_social, has_email, journey_hours
+            has_organic, 0 AS has_cpc, has_social, has_email, has_display, has_referral, has_affiliate, has_direct, journey_hours
      FROM converting_users)
   )
 ),
@@ -131,10 +144,10 @@ no_cpc_pred AS (
 no_social_pred AS (
   SELECT
     user_pseudo_id,
-    predicted_converted_probs[OFFSET(0)].prob AS prob_no_social
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_no_social
   FROM ML.PREDICT(MODEL `your_project.your_dataset.attribution_model`,
     (SELECT user_pseudo_id, touchpoint_count, distinct_channels,
-            has_organic, has_cpc, 0 AS has_social, has_email, journey_hours
+            has_organic, has_cpc, 0 AS has_social, has_email, has_display, has_referral, has_affiliate, has_direct, journey_hours
      FROM converting_users)
   )
 ),
@@ -142,10 +155,54 @@ no_social_pred AS (
 no_email_pred AS (
   SELECT
     user_pseudo_id,
-    predicted_converted_probs[OFFSET(0)].prob AS prob_no_email
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_no_email
   FROM ML.PREDICT(MODEL `your_project.your_dataset.attribution_model`,
     (SELECT user_pseudo_id, touchpoint_count, distinct_channels,
-            has_organic, has_cpc, has_social, 0 AS has_email, journey_hours
+            has_organic, has_cpc, has_social, 0 AS has_email, has_display, has_referral, has_affiliate, has_direct, journey_hours
+     FROM converting_users)
+  )
+),
+-- Prediction without display
+no_display_pred AS (
+  SELECT
+    user_pseudo_id,
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_no_display
+  FROM ML.PREDICT(MODEL `your_project.your_dataset.attribution_model`,
+    (SELECT user_pseudo_id, touchpoint_count, distinct_channels,
+            has_organic, has_cpc, has_social, has_email, 0 AS has_display, has_referral, has_affiliate, has_direct, journey_hours
+     FROM converting_users)
+  )
+),
+-- Prediction without referral
+no_referral_pred AS (
+  SELECT
+    user_pseudo_id,
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_no_referral
+  FROM ML.PREDICT(MODEL `your_project.your_dataset.attribution_model`,
+    (SELECT user_pseudo_id, touchpoint_count, distinct_channels,
+            has_organic, has_cpc, has_social, has_email, has_display, 0 AS has_referral, has_affiliate, has_direct, journey_hours
+     FROM converting_users)
+  )
+),
+-- Prediction without affiliate
+no_affiliate_pred AS (
+  SELECT
+    user_pseudo_id,
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_no_affiliate
+  FROM ML.PREDICT(MODEL `your_project.your_dataset.attribution_model`,
+    (SELECT user_pseudo_id, touchpoint_count, distinct_channels,
+            has_organic, has_cpc, has_social, has_email, has_display, has_referral, 0 AS has_affiliate, has_direct, journey_hours
+     FROM converting_users)
+  )
+),
+-- Prediction without direct
+no_direct_pred AS (
+  SELECT
+    user_pseudo_id,
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_no_direct
+  FROM ML.PREDICT(MODEL `your_project.your_dataset.attribution_model`,
+    (SELECT user_pseudo_id, touchpoint_count, distinct_channels,
+            has_organic, has_cpc, has_social, has_email, has_display, has_referral, has_affiliate, 0 AS has_direct, journey_hours
      FROM converting_users)
   )
 ),
@@ -156,29 +213,57 @@ marginal AS (
     GREATEST(f.full_prob - COALESCE(o.prob_no_organic, f.full_prob), 0) AS organic_contribution,
     GREATEST(f.full_prob - COALESCE(c.prob_no_cpc, f.full_prob), 0)     AS cpc_contribution,
     GREATEST(f.full_prob - COALESCE(s.prob_no_social, f.full_prob), 0)  AS social_contribution,
-    GREATEST(f.full_prob - COALESCE(e.prob_no_email, f.full_prob), 0)   AS email_contribution
+    GREATEST(f.full_prob - COALESCE(e.prob_no_email, f.full_prob), 0)   AS email_contribution,
+    GREATEST(f.full_prob - COALESCE(d.prob_no_display, f.full_prob), 0) AS display_contribution,
+    GREATEST(f.full_prob - COALESCE(r.prob_no_referral, f.full_prob), 0) AS referral_contribution,
+    GREATEST(f.full_prob - COALESCE(a.prob_no_affiliate, f.full_prob), 0) AS affiliate_contribution,
+    GREATEST(f.full_prob - COALESCE(dr.prob_no_direct, f.full_prob), 0) AS direct_contribution
   FROM full_pred f
-  LEFT JOIN no_organic_pred o ON f.user_pseudo_id = o.user_pseudo_id
-  LEFT JOIN no_cpc_pred c      ON f.user_pseudo_id = c.user_pseudo_id
-  LEFT JOIN no_social_pred s   ON f.user_pseudo_id = s.user_pseudo_id
-  LEFT JOIN no_email_pred e    ON f.user_pseudo_id = e.user_pseudo_id
+  LEFT JOIN no_organic_pred o   ON f.user_pseudo_id = o.user_pseudo_id
+  LEFT JOIN no_cpc_pred c       ON f.user_pseudo_id = c.user_pseudo_id
+  LEFT JOIN no_social_pred s    ON f.user_pseudo_id = s.user_pseudo_id
+  LEFT JOIN no_email_pred e     ON f.user_pseudo_id = e.user_pseudo_id
+  LEFT JOIN no_display_pred d   ON f.user_pseudo_id = d.user_pseudo_id
+  LEFT JOIN no_referral_pred r  ON f.user_pseudo_id = r.user_pseudo_id
+  LEFT JOIN no_affiliate_pred a ON f.user_pseudo_id = a.user_pseudo_id
+  LEFT JOIN no_direct_pred dr   ON f.user_pseudo_id = dr.user_pseudo_id
 ),
 -- Normalise: each user's contributions sum to 1.0 (share of their conversion)
 normalised AS (
   SELECT
     user_pseudo_id,
     organic_contribution / NULLIF(
-      organic_contribution + cpc_contribution + social_contribution + email_contribution, 0
+      organic_contribution + cpc_contribution + social_contribution + email_contribution
+      + display_contribution + referral_contribution + affiliate_contribution + direct_contribution, 0
     ) AS organic_share,
     cpc_contribution / NULLIF(
-      organic_contribution + cpc_contribution + social_contribution + email_contribution, 0
+      organic_contribution + cpc_contribution + social_contribution + email_contribution
+      + display_contribution + referral_contribution + affiliate_contribution + direct_contribution, 0
     ) AS cpc_share,
     social_contribution / NULLIF(
-      organic_contribution + cpc_contribution + social_contribution + email_contribution, 0
+      organic_contribution + cpc_contribution + social_contribution + email_contribution
+      + display_contribution + referral_contribution + affiliate_contribution + direct_contribution, 0
     ) AS social_share,
     email_contribution / NULLIF(
-      organic_contribution + cpc_contribution + social_contribution + email_contribution, 0
-    ) AS email_share
+      organic_contribution + cpc_contribution + social_contribution + email_contribution
+      + display_contribution + referral_contribution + affiliate_contribution + direct_contribution, 0
+    ) AS email_share,
+    display_contribution / NULLIF(
+      organic_contribution + cpc_contribution + social_contribution + email_contribution
+      + display_contribution + referral_contribution + affiliate_contribution + direct_contribution, 0
+    ) AS display_share,
+    referral_contribution / NULLIF(
+      organic_contribution + cpc_contribution + social_contribution + email_contribution
+      + display_contribution + referral_contribution + affiliate_contribution + direct_contribution, 0
+    ) AS referral_share,
+    affiliate_contribution / NULLIF(
+      organic_contribution + cpc_contribution + social_contribution + email_contribution
+      + display_contribution + referral_contribution + affiliate_contribution + direct_contribution, 0
+    ) AS affiliate_share,
+    direct_contribution / NULLIF(
+      organic_contribution + cpc_contribution + social_contribution + email_contribution
+      + display_contribution + referral_contribution + affiliate_contribution + direct_contribution, 0
+    ) AS direct_share
   FROM marginal
 )
 -- Aggregate: sum of normalised shares = data-driven conversion credit per channel
@@ -189,6 +274,14 @@ UNION ALL
 SELECT 'Social' AS channel, ROUND(SUM(social_share), 4) FROM normalised
 UNION ALL
 SELECT 'Email' AS channel, ROUND(SUM(email_share), 4) FROM normalised
+UNION ALL
+SELECT 'Display' AS channel, ROUND(SUM(display_share), 4) FROM normalised
+UNION ALL
+SELECT 'Referral' AS channel, ROUND(SUM(referral_share), 4) FROM normalised
+UNION ALL
+SELECT 'Affiliate' AS channel, ROUND(SUM(affiliate_share), 4) FROM normalised
+UNION ALL
+SELECT 'Direct' AS channel, ROUND(SUM(direct_share), 4) FROM normalised
 ORDER BY attributed_conversions DESC;
 
 -- ============================================================================
