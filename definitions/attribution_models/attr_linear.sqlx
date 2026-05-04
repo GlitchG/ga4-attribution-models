@@ -3,8 +3,7 @@ config {
   schema: "attribution_models",
   name: "attr_linear",
   tags: ["attribution", "model"],
-  description: "Linear attribution: distributes credit equally across all sessions in the journey.",
-  dependencies: ["intermediate_int_attribution_path_rows"]
+  description: "Linear attribution: distributes credit equally across all sessions in the journey."
 }
 
 SELECT

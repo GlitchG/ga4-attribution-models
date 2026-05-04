@@ -3,8 +3,7 @@ config {
   schema: "dashboard",
   name: "attribution_dashboard",
   tags: ["dashboard", "daily"],
-  description: "Dashboard-ready view of attribution model comparison by channel with ROAS and CPA metrics.",
-  dependencies: ["attribution_models_attribution_mart", "attribution_models_cross_channel_comparison"]
+  description: "Dashboard-ready view of attribution model comparison by channel with ROAS and CPA metrics."
 }
 
 SELECT

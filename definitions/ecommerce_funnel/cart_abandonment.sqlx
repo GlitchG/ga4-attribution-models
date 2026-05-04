@@ -3,8 +3,7 @@ config {
   schema: "ecommerce_funnel",
   name: "cart_abandonment",
   tags: ["funnel", "daily"],
-  description: "Cart abandonment analysis: users who added to cart but did not complete purchase within the same session.",
-  dependencies: ["staging_stg_ga4_conversions"]
+  description: "Cart abandonment analysis: users who added to cart but did not complete purchase within the same session."
 }
 
 WITH cart_sessions AS (

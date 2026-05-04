@@ -3,8 +3,7 @@ config {
   schema: "user_journey",
   name: "path_analysis",
   tags: ["journey", "daily"],
-  description: "Path analysis with top journey patterns, conversion rates, and average revenue per path.",
-  dependencies: ["intermediate_int_attribution_journeys"]
+  description: "Path analysis with top journey patterns, conversion counts, and average revenue per path."
 }
 
 WITH path_strings AS (
@@ -28,6 +27,6 @@ SELECT
   ROUND(AVG(path_length), 1) AS avg_path_length
 FROM path_strings
 GROUP BY 1
-HAVING COUNT(DISTINCT conversion_id) >= 2  -- Filter noise
+HAVING COUNT(DISTINCT conversion_id) >= 2
 ORDER BY total_conversions DESC
 LIMIT 100

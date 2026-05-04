@@ -3,8 +3,7 @@ config {
   schema: "attribution_models",
   name: "attr_first_click",
   tags: ["attribution", "model"],
-  description: "First-click attribution: assigns 100% credit to the first session in each conversion journey.",
-  dependencies: ["intermediate_int_attribution_path_rows"]
+  description: "First-click attribution: assigns 100% credit to the first session in each conversion journey."
 }
 
 SELECT

@@ -17,12 +17,14 @@ Eight attribution models in **Dataform** (BigQuery-native), runnable on Google's
 
 ```
 definitions/
+├── sources/
+│   └── ga4_events.sqlx                 -- External GA4 table declaration
 ├── staging/
-│   ├── stg_ga4_sessions.sqlx          -- Deduplicated sessions with source/medium/channel
-│   └── stg_ga4_conversions.sqlx       -- Deduplicated conversions with FULL ecommerce payload
+│   ├── stg_ga4_sessions.sqlx           -- Deduplicated sessions (incremental)
+│   └── stg_ga4_conversions.sqlx        -- Deduplicated conversions (incremental)
 ├── intermediate/
-│   ├── int_attribution_journeys.sqlx  -- One row per conversion, session path as ARRAY
-│   └── int_attribution_path_rows.sqlx -- Unnested paths (row per session-conversion pair)
+│   ├── int_attribution_journeys.sqlx   -- One row per conversion, path array
+│   └── int_attribution_path_rows.sqlx  -- Unnested paths
 ├── attribution_models/
 │   ├── attr_first_click.sqlx
 │   ├── attr_last_click.sqlx
@@ -30,18 +32,26 @@ definitions/
 │   ├── attr_linear.sqlx
 │   ├── attr_time_decay.sqlx
 │   ├── attr_u_shape.sqlx
-│   ├── attr_data_driven.sqlx
-│   ├── attribution_mart.sqlx          -- Union of all models
-│   └── cross_channel_comparison.sqlx  -- Channel-level ROAS/CPA comparison
+│   ├── attr_position_weighted.sqlx     -- Position-based heuristic
+│   ├── attr_data_driven_bqml.sqlx      -- BQML feature ablation
+│   ├── attribution_mart.sqlx           -- Union of all 8 models
+│   └── cross_channel_comparison.sqlx   -- Channel-level comparison
 ├── ecommerce_funnel/
-│   ├── purchase_funnel.sqlx           -- Stage-by-stage funnel metrics
-│   └── cart_abandonment.sqlx          -- Cart abandonment rate
+│   ├── purchase_funnel.sqlx
+│   └── cart_abandonment.sqlx
 ├── user_journey/
-│   └── path_analysis.sqlx             -- Top 100 journey patterns
-└── dashboard/
-    ├── attribution_dashboard.sqlx     -- Looker Studio-ready attribution view
-    ├── paths_dashboard.sqlx           -- Journey paths for tables
-    └── funnel_dashboard.sqlx          -- Ecommerce funnel for charts
+│   └── path_analysis.sqlx
+├── dashboard/
+│   ├── attribution_dashboard.sqlx
+│   ├── paths_dashboard.sqlx
+│   └── funnel_dashboard.sqlx
+└── ml/
+    └── attr_data_driven_train.sqlx     -- BQML model training
+
+includes/
+├── channel_grouping.js               -- DRY 8-channel CASE logic
+├── source_resolution.js              -- DRY GA4 source resolution
+└── ga4_source_table.js               -- DRY table reference
 ```
 
 #### The eight models
@@ -49,13 +59,14 @@ definitions/
 | Model | File | What it does |
 |---|---|---|
 | Last Click | `attr_last_click.sqlx` | 100% credit to the last session before conversion |
-| Last Non-Direct | `attr_last_non_direct_click.sqlx` | 100% credit to the last non-Direct session |
+| Last Non-Direct | `attr_last_non_direct_click.sqlx` | 100% credit to the last non-Direct session; falls back to Direct if entire path is Direct |
 | First Click | `attr_first_click.sqlx` | 100% credit to the first session in the journey |
 | Linear | `attr_linear.sqlx` | Equal credit split across all sessions |
 | Time Decay | `attr_time_decay.sqlx` | Exponential decay: closer sessions get more credit (7-day half-life) |
 | U-Shaped | `attr_u_shape.sqlx` | 40% first + 40% last + 20% middle |
-| Data-Driven | `attr_data_driven.sqlx` | Removal-effect heuristic (SQL-only approximation) |
-| Cross-Channel Comparison | `cross_channel_comparison.sqlx` | All models side by side with revenue |
+| Position Weighted | `attr_position_weighted.sqlx` | Calibrated heuristic (50% first, 30% last, 20% middle) |
+| Data-Driven (BQML) | `attr_data_driven_bqml.sqlx` | Feature-ablation marginal contribution via BQML logistic regression |
+| Cross-Channel Comparison | `cross_channel_comparison.sqlx` | All eight models side by side with revenue |
 
 #### Running it (Dataform)
 
@@ -73,7 +84,7 @@ dataform run
 
 All tables are created in the `attribution_models` dataset (configurable in `workflow_settings.yaml`).
 
-To use with your own GA4 export: replace the source table in `definitions/staging/*.sqlx` from `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*` to `your-project.your_dataset.events_*`.
+To use with your own GA4 export: change `vars.ga4_project` and `vars.ga4_dataset` in `workflow_settings.yaml` — no SQL edits needed.
 
 #### Legacy SQL (standalone queries)
 
@@ -83,7 +94,7 @@ The original standalone `.sql` files remain in the root folders for reference an
 - `ecommerce_funnel/*.sql`
 - `dashboard/*.sql`
 
-These do **not** include the full ecommerce enrichment or deduplication logic from the Dataform pipeline.
+These do **not** include the full ecommerce enrichment, deduplication, assertions, or incremental logic from the Dataform pipeline.
 
 #### Production features
 
@@ -91,12 +102,17 @@ These do **not** include the full ecommerce enrichment or deduplication logic fr
 - **Full ecommerce payload** — `purchase_revenue`, `purchase_revenue_in_usd`, `total_item_quantity`, `transaction_id`, `shipping_value`, `tax_value`, `refund_value`, `coupon`, `items` array, `event_value`, `event_currency`
 - **Context enrichment** — `device_category`, `device_os`, `country`, `region`, `city`
 - **Session-based touchpoints** — source/medium from `event_params` using the first-non-auto-event rule (aligns with GA4 UI Session Acquisition, reduces drift by 5-15% on real data)
-- **Channel normalization** — 8-channel grouping: Paid Search, Organic Search, Social, Email, Display, Referral, Affiliate, Direct
+- **Channel normalization** — 8-channel grouping via `includes/channel_grouping.js` (single source of truth)
 - **30-day lookback** — `TIMESTAMP_SUB(conversion_ts, INTERVAL 30 DAY)`
+  - **Caveat:** The `_TABLE_SUFFIX` filter in staging models truncates this lookback. If your conversion date is 2021-01-31 and `_TABLE_SUFFIX` filters to January, sessions from December 31 (within 30 days) are excluded. For exact lookback, replace `_TABLE_SUFFIX` with a date-math filter on `event_timestamp`.
 - **Multi-conversion cycles** — `ROW_NUMBER()` per user, each conversion gets its own journey
 - **Ordered paths** — sessions sorted by `session_start`, with position numbering
-- **Direct traffic handling** — `IFNULL(source, '(direct)')`, non-Direct fallback logic
-- **BigQuery partitioning** — staging and mart tables partitioned by `DATE(conversion_ts)` for cost control
+- **Direct traffic handling** — `IFNULL(source, '(direct)')`, non-Direct fallback logic (last-non-direct model falls back to Direct instead of dropping conversions)
+- **BigQuery partitioning & clustering** — staging and mart tables partitioned by `DATE(conversion_ts)` for cost control
+- **Incremental tables** — `stg_ga4_sessions` and `stg_ga4_conversions` use `type: incremental` with 3-day partition overwrite for production cost control
+- **Assertions** — Dataform-native data quality checks on unique keys, non-nulls, and row conditions
+- **Vars-driven** — `start_date`, `end_date`, `ga4_project`, `ga4_dataset`, `lookback_days` centralised in `workflow_settings.yaml`
+- **Includes/DRY** — `channel_grouping.js` and `source_resolution.js` eliminate duplicated logic
 
 #### GA4 BigQuery Export Compatibility (2026 Research)
 
@@ -119,7 +135,7 @@ See `data-preparation/google-analytics-4-data-preparation.sql` header for detail
 #### What's in `/dashboard`
 
 Three Dataform views + setup guide for Looker Studio:
-- `attribution_dashboard.sqlx` — unified 7-model output for bar charts and heatmaps
+- `attribution_dashboard.sqlx` — unified 8-model output for bar charts and heatmaps
 - `funnel_dashboard.sqlx` — ecommerce funnel for funnel chart widget
 - `paths_dashboard.sqlx` — top conversion paths for tables
 

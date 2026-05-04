@@ -3,12 +3,17 @@ config {
   schema: "intermediate",
   name: "int_attribution_path_rows",
   tags: ["intermediate", "daily"],
-  description: "Row-level unnested paths for attribution models that prefer tabular access. Each row = one session in a conversion journey. No duplicate session-conversion pairs.",
-  dependencies: ["intermediate_int_attribution_journeys"]
+  description: "Row-level unnested paths for attribution models. Each row = one session in a conversion journey. No duplicate session-conversion pairs.",
+  assertions: {
+    uniqueKey: ["user_pseudo_id", "conversion_id", "session_start"],
+    nonNull: ["user_pseudo_id", "conversion_id", "session_start", "channel"],
+    rowConditions: [
+      "session_position_asc >= 1",
+      "session_position_desc >= 1",
+      "session_position_asc + session_position_desc - 1 = path_length"
+    ]
+  }
 }
-
--- Unnest journey paths to rows for row-based attribution models.
--- Each session-conversion pair is unique (deduplicated at journey build time).
 
 SELECT
   j.user_pseudo_id,
@@ -18,7 +23,7 @@ SELECT
   j.event_date,
   j.platform,
 
-  -- Ecommerce payload (repeated per row for easy aggregation)
+  -- Ecommerce payload
   j.transaction_id,
   j.purchase_revenue,
   j.purchase_revenue_in_usd,

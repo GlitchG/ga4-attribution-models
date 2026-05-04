@@ -3,20 +3,28 @@ config {
   schema: "intermediate",
   name: "int_attribution_journeys",
   tags: ["intermediate", "daily"],
-  description: "Session-to-conversion journeys with deduplicated paths. One row per conversion event. No duplicate conversions, no duplicate sessions within a path.",
+  description: "Session-to-conversion journeys: one row per conversion, zero duplicates, ordered path arrays. Includes full ecommerce payload and context.",
   bigquery: {
     partitionBy: "DATE(conversion_ts)",
     clusterBy: ["user_pseudo_id", "conversion_event"]
   },
-  dependencies: [
-    "staging_stg_ga4_sessions",
-    "staging_stg_ga4_conversions"
-  ]
+  assertions: {
+    uniqueKey: ["user_pseudo_id", "conversion_ts", "conversion_event"],
+    nonNull: ["user_pseudo_id", "conversion_ts", "transaction_id", "path_length"],
+    rowConditions: [
+      "purchase_revenue_in_usd >= 0",
+      "path_length >= 1",
+      "ARRAY_LENGTH(path) = path_length"
+    ]
+  }
 }
 
 -- Build ordered session journeys per conversion.
--- Each conversion appears exactly once. Sessions are deduplicated within each path.
--- All ecommerce and context fields from stg_ga4_conversions are preserved.
+-- Each conversion appears exactly once. Sessions deduplicated within each path.
+-- All ecommerce and context fields preserved.
+-- CRITICAL: The _TABLE_SUFFIX filter in staging tables truncates the lookback.
+-- For exact ${dataform.projectConfig.vars.lookback_days}-day lookback, replace _TABLE_SUFFIX with
+-- a date-math filter on event_timestamp in the staging models.
 
 WITH conversion_sessions AS (
   SELECT
@@ -41,14 +49,14 @@ WITH conversion_sessions AS (
     c.event_currency,
     c.event_quantity,
 
-    -- Conversion context
+    -- Context
     c.device_category,
     c.device_os,
     c.device_language,
     c.country,
     c.region,
     c.city,
-    c.session_id AS conversion_session_id,
+    c.conversion_session_id,
 
     -- Session data
     s.session_start,
@@ -59,7 +67,7 @@ WITH conversion_sessions AS (
     s.term,
     s.channel,
 
-    -- Attribution window: session within 30 days before conversion
+    -- Attribution window
     TIMESTAMP_DIFF(c.conversion_ts, s.session_start, HOUR) AS hours_before_conversion,
 
     -- Deduplicate sessions within the same user's journey
@@ -72,45 +80,12 @@ WITH conversion_sessions AS (
   LEFT JOIN ${ref("staging", "stg_ga4_sessions")} s
     ON c.user_pseudo_id = s.user_pseudo_id
     AND s.session_start <= c.conversion_ts
-    AND s.session_start >= TIMESTAMP_SUB(c.conversion_ts, INTERVAL 30 DAY)
+    AND s.session_start >= TIMESTAMP_SUB(c.conversion_ts, INTERVAL ${dataform.projectConfig.vars.lookback_days} DAY)
 
-  WHERE c.conversion_event = 'purchase'  -- Only purchase events get full attribution journeys
+  WHERE c.conversion_event = 'purchase'
 ),
 deduped_paths AS (
-  SELECT
-    user_pseudo_id,
-    conversion_ts,
-    conversion_event,
-    event_date,
-    platform,
-    transaction_id,
-    purchase_revenue,
-    purchase_revenue_in_usd,
-    total_item_quantity,
-    shipping_value,
-    tax_value,
-    refund_value,
-    unique_items,
-    coupon,
-    items,
-    event_value,
-    event_currency,
-    event_quantity,
-    device_category,
-    device_os,
-    device_language,
-    country,
-    region,
-    city,
-    conversion_session_id,
-    session_start,
-    source,
-    medium,
-    campaign,
-    content,
-    term,
-    channel,
-    hours_before_conversion
+  SELECT *
   FROM conversion_sessions
   WHERE session_rn = 1
 ),
@@ -132,7 +107,7 @@ agg_journeys AS (
     MAX(refund_value) AS refund_value,
     MAX(unique_items) AS unique_items,
     MAX(coupon) AS coupon,
-    ANY_VALUE(items) AS items,  -- items is an array, same across deduped rows
+    ANY_VALUE(items) AS items,
     MAX(event_value) AS event_value,
     MAX(event_currency) AS event_currency,
     MAX(event_quantity) AS event_quantity,
@@ -161,13 +136,17 @@ agg_journeys AS (
       ORDER BY session_start
     ) AS path,
 
-    ARRAY_LENGTH(ARRAY_AGG(STRUCT(session_start) ORDER BY session_start)) AS path_length,
+    COUNT(*) AS path_length,
 
-    -- Generate stable conversion_id
-    ROW_NUMBER() OVER (PARTITION BY user_pseudo_id ORDER BY conversion_ts) AS conversion_id
+    -- Stable conversion_id: globally unique per user
+    ROW_NUMBER() OVER (PARTITION BY user_pseudo_id ORDER BY conversion_ts) AS user_conversion_seq
 
   FROM deduped_paths
   GROUP BY
     user_pseudo_id, conversion_ts, conversion_event, event_date, platform
 )
-SELECT * FROM agg_journeys
+SELECT
+  *,
+  -- Globally unique conversion_id for cross-user aggregation
+  CONCAT(user_pseudo_id, '-', CAST(user_conversion_seq AS STRING)) AS conversion_id
+FROM agg_journeys

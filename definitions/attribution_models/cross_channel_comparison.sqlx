@@ -3,17 +3,18 @@ config {
   schema: "attribution_models",
   name: "cross_channel_comparison",
   tags: ["mart", "daily"],
-  description: "Aggregated channel-level metrics across all attribution models for side-by-side ROAS, CPA, and revenue comparison.",
-  dependencies: ["attribution_models_attribution_mart"]
+  description: "Aggregated channel-level metrics across all attribution models for side-by-side ROAS, CPA, and revenue comparison. Eight models: first_click, last_click, last_non_direct_click, linear, time_decay, u_shape, position_weighted, data_driven_bqml."
 }
 
 -- Channel-level rollup comparing all attribution models.
--- Use this to see how model choice affects channel investment recommendations.
+-- conversion_id is globally unique (user_pseudo_id + seq), but for counting
+-- attributed conversions we use COUNT(DISTINCT transaction_id) which is the
+-- true business key and handles cases where transaction_id may be NULL.
 
 SELECT
   model,
   channel,
-  COUNT(DISTINCT conversion_id) AS attributed_conversions,
+  COUNT(DISTINCT CONCAT(user_pseudo_id, '-', conversion_id)) AS attributed_conversions,
   SUM(attributed_credit) AS total_credit,
   ROUND(SUM(attributed_revenue), 2) AS total_revenue_usd,
   ROUND(SUM(attributed_revenue_local), 2) AS total_revenue_local,

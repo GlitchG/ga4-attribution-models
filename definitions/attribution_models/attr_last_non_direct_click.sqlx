@@ -3,8 +3,7 @@ config {
   schema: "attribution_models",
   name: "attr_last_non_direct_click",
   tags: ["attribution", "model"],
-  description: "Last non-direct click attribution: assigns 100% credit to the last non-direct session before conversion.",
-  dependencies: ["intermediate_int_attribution_path_rows"]
+  description: "Last non-direct click attribution: assigns 100% credit to the last non-Direct session. Falls back to Direct if the entire path is Direct (no conversions are silently dropped)."
 }
 
 WITH ranked AS (
@@ -12,10 +11,9 @@ WITH ranked AS (
     *,
     ROW_NUMBER() OVER (
       PARTITION BY user_pseudo_id, conversion_id
-      ORDER BY session_position_desc
+      ORDER BY CASE WHEN channel != 'Direct' THEN 0 ELSE 1 END, session_position_desc
     ) AS rn
   FROM ${ref("intermediate", "int_attribution_path_rows")}
-  WHERE channel != 'Direct'
 )
 SELECT
   user_pseudo_id,

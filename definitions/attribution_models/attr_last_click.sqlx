@@ -3,8 +3,7 @@ config {
   schema: "attribution_models",
   name: "attr_last_click",
   tags: ["attribution", "model"],
-  description: "Last-click attribution: assigns 100% credit to the last session before conversion.",
-  dependencies: ["intermediate_int_attribution_path_rows"]
+  description: "Last-click attribution: assigns 100% credit to the last session before conversion."
 }
 
 SELECT

@@ -3,8 +3,7 @@ config {
   schema: "attribution_models",
   name: "attr_u_shape",
   tags: ["attribution", "model"],
-  description: "U-shape attribution: 40% first touch, 40% last touch, 20% split among middle touches.",
-  dependencies: ["intermediate_int_attribution_path_rows"]
+  description: "U-shape attribution: 40% first touch, 40% last touch, 20% split among middle touches."
 }
 
 SELECT

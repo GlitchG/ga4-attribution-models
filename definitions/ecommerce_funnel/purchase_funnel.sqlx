@@ -3,8 +3,7 @@ config {
   schema: "ecommerce_funnel",
   name: "purchase_funnel",
   tags: ["funnel", "daily"],
-  description: "GA4 ecommerce funnel from session to purchase with conversion rates and revenue at each stage.",
-  dependencies: ["staging_stg_ga4_sessions", "staging_stg_ga4_conversions"]
+  description: "GA4 ecommerce funnel from session to purchase with conversion rates and revenue at each stage."
 }
 
 WITH sessions AS (

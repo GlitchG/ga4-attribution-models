@@ -3,8 +3,7 @@ config {
   schema: "dashboard",
   name: "paths_dashboard",
   tags: ["dashboard", "daily"],
-  description: "Dashboard-ready view of user journey paths with conversion and revenue data.",
-  dependencies: ["intermediate_int_attribution_journeys"]
+  description: "Dashboard-ready view of user journey paths with conversion and revenue data."
 }
 
 SELECT
@@ -17,7 +16,6 @@ SELECT
   purchase_revenue_in_usd,
   path_length,
   path,
-  -- Serialize path for BI tools
   (
     SELECT STRING_AGG(channel, ' > ' ORDER BY session_start)
     FROM UNNEST(path)

@@ -1,0 +1,166 @@
+config {
+  type: "table",
+  schema: "attribution_models",
+  name: "attr_data_driven_bqml",
+  tags: ["attribution", "model", "ml"],
+  description: "Data-driven attribution via BQML feature ablation. Trains logistic regression on channel presence, then calculates removal effect for each channel per conversion. NOTE: requires >100 conversions for stable training; the public sample may be too sparse."
+}
+
+-- Feature-ablation data-driven attribution using BQML logistic regression.
+-- 1. Predict P(convert | all channels present)
+-- 2. For each channel, predict P(convert | channel removed)
+-- 3. Removal effect = P_all - P_without_channel
+-- 4. Normalise to sum to 1.0 per conversion
+--
+-- NOTE: The model is trained only on converted paths (label=1). For a
+-- production pipeline, also sample non-converted paths (label=0) from
+-- sessions that did not convert within the lookback window.
+
+WITH base_features AS (
+  SELECT
+    user_pseudo_id,
+    conversion_id,
+    purchase_revenue_in_usd,
+    purchase_revenue,
+    MAX(CASE WHEN channel = 'Paid Search' THEN 1 ELSE 0 END) AS has_paid_search,
+    MAX(CASE WHEN channel = 'Organic Search' THEN 1 ELSE 0 END) AS has_organic_search,
+    MAX(CASE WHEN channel = 'Social' THEN 1 ELSE 0 END) AS has_social,
+    MAX(CASE WHEN channel = 'Email' THEN 1 ELSE 0 END) AS has_email,
+    MAX(CASE WHEN channel = 'Display' THEN 1 ELSE 0 END) AS has_display,
+    MAX(CASE WHEN channel = 'Referral' THEN 1 ELSE 0 END) AS has_referral,
+    MAX(CASE WHEN channel = 'Affiliate' THEN 1 ELSE 0 END) AS has_affiliate,
+    MAX(CASE WHEN channel = 'Direct' THEN 1 ELSE 0 END) AS has_direct
+  FROM ${ref("intermediate", "int_attribution_path_rows")}
+  GROUP BY 1, 2, 3, 4
+),
+
+-- Predict with ALL channels
+pred_all AS (
+  SELECT
+    user_pseudo_id,
+    conversion_id,
+    purchase_revenue_in_usd,
+    purchase_revenue,
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_all
+  FROM ML.PREDICT(
+    MODEL ${ref("ml", "attr_data_driven_model")},
+    (SELECT * FROM base_features)
+  )
+),
+
+-- Predict with each channel removed
+removed_paid AS (
+  SELECT user_pseudo_id, conversion_id, 'Paid Search' AS channel,
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
+  FROM ML.PREDICT(MODEL ${ref("ml", "attr_data_driven_model")},
+    (SELECT user_pseudo_id, conversion_id, 0 AS has_paid_search,
+      has_organic_search, has_social, has_email, has_display, has_referral, has_affiliate, has_direct FROM base_features))
+),
+removed_organic AS (
+  SELECT user_pseudo_id, conversion_id, 'Organic Search' AS channel,
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
+  FROM ML.PREDICT(MODEL ${ref("ml", "attr_data_driven_model")},
+    (SELECT user_pseudo_id, conversion_id, has_paid_search, 0 AS has_organic_search,
+      has_social, has_email, has_display, has_referral, has_affiliate, has_direct FROM base_features))
+),
+removed_social AS (
+  SELECT user_pseudo_id, conversion_id, 'Social' AS channel,
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
+  FROM ML.PREDICT(MODEL ${ref("ml", "attr_data_driven_model")},
+    (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, 0 AS has_social,
+      has_email, has_display, has_referral, has_affiliate, has_direct FROM base_features))
+),
+removed_email AS (
+  SELECT user_pseudo_id, conversion_id, 'Email' AS channel,
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
+  FROM ML.PREDICT(MODEL ${ref("ml", "attr_data_driven_model")},
+    (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, has_social, 0 AS has_email,
+      has_display, has_referral, has_affiliate, has_direct FROM base_features))
+),
+removed_display AS (
+  SELECT user_pseudo_id, conversion_id, 'Display' AS channel,
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
+  FROM ML.PREDICT(MODEL ${ref("ml", "attr_data_driven_model")},
+    (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, has_social, has_email, 0 AS has_display,
+      has_referral, has_affiliate, has_direct FROM base_features))
+),
+removed_referral AS (
+  SELECT user_pseudo_id, conversion_id, 'Referral' AS channel,
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
+  FROM ML.PREDICT(MODEL ${ref("ml", "attr_data_driven_model")},
+    (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, has_social, has_email, has_display, 0 AS has_referral,
+      has_affiliate, has_direct FROM base_features))
+),
+removed_affiliate AS (
+  SELECT user_pseudo_id, conversion_id, 'Affiliate' AS channel,
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
+  FROM ML.PREDICT(MODEL ${ref("ml", "attr_data_driven_model")},
+    (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, has_social, has_email, has_display, has_referral, 0 AS has_affiliate,
+      has_direct FROM base_features))
+),
+removed_direct AS (
+  SELECT user_pseudo_id, conversion_id, 'Direct' AS channel,
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
+  FROM ML.PREDICT(MODEL ${ref("ml", "attr_data_driven_model")},
+    (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, has_social, has_email, has_display, has_referral, has_affiliate, 0 AS has_direct FROM base_features))
+),
+
+channel_predictions AS (
+  SELECT * FROM removed_paid UNION ALL
+  SELECT * FROM removed_organic UNION ALL
+  SELECT * FROM removed_social UNION ALL
+  SELECT * FROM removed_email UNION ALL
+  SELECT * FROM removed_display UNION ALL
+  SELECT * FROM removed_referral UNION ALL
+  SELECT * FROM removed_affiliate UNION ALL
+  SELECT * FROM removed_direct
+),
+
+removal_effects AS (
+  SELECT
+    a.user_pseudo_id,
+    a.conversion_id,
+    cp.channel,
+    a.purchase_revenue_in_usd,
+    a.purchase_revenue,
+    GREATEST(a.prob_all - cp.prob_without, 0) AS removal_effect
+  FROM pred_all a
+  CROSS JOIN UNNEST([
+    'Paid Search', 'Organic Search', 'Social', 'Email', 'Display', 'Referral', 'Affiliate', 'Direct'
+  ]) AS channels(channel)
+  LEFT JOIN channel_predictions cp
+    ON a.user_pseudo_id = cp.user_pseudo_id
+    AND a.conversion_id = cp.conversion_id
+    AND channels.channel = cp.channel
+),
+
+sums AS (
+  SELECT
+    user_pseudo_id,
+    conversion_id,
+    SUM(removal_effect) AS total_effect
+  FROM removal_effects
+  GROUP BY 1, 2
+)
+
+SELECT
+  r.user_pseudo_id,
+  r.conversion_id,
+  CAST(NULL AS TIMESTAMP) AS conversion_ts,
+  CAST(NULL AS STRING) AS transaction_id,
+  r.purchase_revenue,
+  r.purchase_revenue_in_usd,
+  CAST(NULL AS INT64) AS path_length,
+  CAST(NULL AS STRING) AS source,
+  CAST(NULL AS STRING) AS medium,
+  CAST(NULL AS STRING) AS campaign,
+  r.channel,
+  'data_driven_bqml' AS model,
+  ROUND(r.removal_effect / NULLIF(s.total_effect, 0), 4) AS attributed_credit,
+  ROUND(r.purchase_revenue_in_usd * r.removal_effect / NULLIF(s.total_effect, 0), 2) AS attributed_revenue,
+  ROUND(r.purchase_revenue * r.removal_effect / NULLIF(s.total_effect, 0), 2) AS attributed_revenue_local
+FROM removal_effects r
+JOIN sums s
+  ON r.user_pseudo_id = s.user_pseudo_id
+  AND r.conversion_id = s.conversion_id
+WHERE r.removal_effect > 0

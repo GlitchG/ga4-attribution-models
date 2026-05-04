@@ -3,12 +3,10 @@ config {
   schema: "attribution_models",
   name: "attr_time_decay",
   tags: ["attribution", "model"],
-  description: "Time-decay attribution: credit decays with a 7-day half-life based on hours before conversion.",
-  dependencies: ["intermediate_int_attribution_path_rows"]
+  description: "Time-decay attribution: credit decays with a 7-day half-life based on hours before conversion."
 }
 
 -- 7-day half-life: weight = 2^(-hours_before / 168)
--- Last touch gets highest weight; first touch gets lowest.
 
 WITH weighted AS (
   SELECT

@@ -3,8 +3,7 @@ config {
   schema: "dashboard",
   name: "funnel_dashboard",
   tags: ["dashboard", "daily"],
-  description: "Dashboard-ready ecommerce funnel metrics with abandonment rates.",
-  dependencies: ["ecommerce_funnel_purchase_funnel", "ecommerce_funnel_cart_abandonment"]
+  description: "Dashboard-ready ecommerce funnel metrics with abandonment rates."
 }
 
 SELECT
