@@ -4,7 +4,7 @@ config {
   name: "attr_data_driven_train",
   tags: ["ml", "attribution"],
   description: "Trains a BQML logistic regression model on channel presence features for data-driven attribution via feature ablation. Requires >100 conversions for stable training.",
-  hasOutput: false
+  hasOutput: true
 }
 
 -- Build feature table: one row per conversion with binary channel flags.
