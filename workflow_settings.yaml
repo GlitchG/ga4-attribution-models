@@ -1,5 +1,5 @@
 dataformCoreVersion: "3.0.20"
-defaultProject: your-gcp-project
+defaultProject: marketing data analyst
 defaultLocation: EU
 defaultDataset: attribution_models
 defaultAssertionDataset: attribution_assertions
