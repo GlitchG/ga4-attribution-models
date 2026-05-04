@@ -62,7 +62,7 @@ WITH raw_conversions AS (
   WHERE _TABLE_SUFFIX
     ${when(incremental(),
       `BETWEEN FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY)) AND FORMAT_DATE('%Y%m%d', CURRENT_DATE())`,
-      `BETWEEN '${dataform.projectConfig.vars.start_date}' AND '${dataform.projectConfig.vars.end_date}'`
+      `BETWEEN '${constants.START_DATE}' AND '${constants.END_DATE}'`
     )}
     AND event_name IN ('purchase', 'begin_checkout', 'add_to_cart', 'add_payment_info', 'add_shipping_info')
 ),

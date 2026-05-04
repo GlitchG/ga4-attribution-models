@@ -38,7 +38,7 @@ WITH session_event_traffic AS (
   WHERE _TABLE_SUFFIX
     ${when(incremental(),
       `BETWEEN FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY)) AND FORMAT_DATE('%Y%m%d', CURRENT_DATE())`,
-      `BETWEEN '${dataform.projectConfig.vars.start_date}' AND '${dataform.projectConfig.vars.end_date}'`
+      `BETWEEN '${constants.START_DATE}' AND '${constants.END_DATE}'`
     )}
     AND (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') IS NOT NULL
 ),

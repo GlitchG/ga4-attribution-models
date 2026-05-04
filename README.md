@@ -50,7 +50,8 @@ definitions/
 
 includes/
 ├── channel_grouping.js               -- DRY 8-channel CASE logic
-└── source_resolution.js              -- DRY GA4 source resolution
+├── source_resolution.js              -- DRY GA4 source resolution
+└── constants.js                      -- Safe defaults for vars (ga4_project, ga4_dataset, start_date, end_date, lookback_days)
 ```
 
 #### The eight models

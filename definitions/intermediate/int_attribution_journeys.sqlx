@@ -23,7 +23,7 @@ config {
 -- Each conversion appears exactly once. Sessions deduplicated within each path.
 -- All ecommerce and context fields preserved.
 -- CRITICAL: The _TABLE_SUFFIX filter in staging tables truncates the lookback.
--- For exact ${dataform.projectConfig.vars.lookback_days}-day lookback, replace _TABLE_SUFFIX with
+-- For exact ${constants.LOOKBACK_DAYS}-day lookback, replace _TABLE_SUFFIX with
 -- a date-math filter on event_timestamp in the staging models.
 
 WITH conversion_sessions AS (
@@ -80,7 +80,7 @@ WITH conversion_sessions AS (
   LEFT JOIN ${ref("staging", "stg_ga4_sessions")} s
     ON c.user_pseudo_id = s.user_pseudo_id
     AND s.session_start <= c.conversion_ts
-    AND s.session_start >= TIMESTAMP_SUB(c.conversion_ts, INTERVAL ${dataform.projectConfig.vars.lookback_days} DAY)
+    AND s.session_start >= TIMESTAMP_SUB(c.conversion_ts, INTERVAL ${constants.LOOKBACK_DAYS} DAY)
 
   WHERE c.conversion_event = 'purchase'
 ),

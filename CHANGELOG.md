@@ -18,6 +18,7 @@ All notable changes to this project are documented in this file.
 - **`attr_data_driven_bqml.sqlx`** — BQML logistic regression with feature-ablation removal effects. Requires `ml/attr_data_driven_train.sqlx`.
 - **`includes/channel_grouping.js`** — DRY 8-channel CASE logic, single source of truth.
 - **`includes/source_resolution.js`** — DRY GA4-UI-style source resolution logic.
+- **`includes/constants.js`** — Safe defaults for all workflow vars. Eliminates compilation failures when vars are omitted.
 - **Assertions** on `stg_ga4_sessions`, `stg_ga4_conversions`, `int_attribution_journeys`, and `int_attribution_path_rows`.
 - **Incremental tables** on `stg_ga4_sessions` and `stg_ga4_conversions` with 3-day partition overwrite.
 - **Vars-driven configuration** — `start_date`, `end_date`, `ga4_project`, `ga4_dataset`, `lookback_days` in `workflow_settings.yaml`.
