@@ -1,0 +1,37 @@
+config {
+  type: "table",
+  schema: "attribution_models",
+  name: "attribution_mart",
+  tags: ["mart", "daily"],
+  description: "Unified attribution mart combining all model outputs with full ecommerce data for cross-model comparison and reporting.",
+  bigquery: {
+    partitionBy: "DATE(conversion_ts)",
+    clusterBy: ["model", "channel"]
+  },
+  dependencies: [
+    "attribution_models_attr_first_click",
+    "attribution_models_attr_last_click",
+    "attribution_models_attr_last_non_direct_click",
+    "attribution_models_attr_linear",
+    "attribution_models_attr_time_decay",
+    "attribution_models_attr_u_shape",
+    "attribution_models_attr_data_driven"
+  ]
+}
+
+-- Union all attribution models into a single table for reporting.
+-- Each row = one session touchpoint with its credited share of the conversion.
+
+SELECT * FROM ${ref("attribution_models", "attr_first_click")}
+UNION ALL
+SELECT * FROM ${ref("attribution_models", "attr_last_click")}
+UNION ALL
+SELECT * FROM ${ref("attribution_models", "attr_last_non_direct_click")}
+UNION ALL
+SELECT * FROM ${ref("attribution_models", "attr_linear")}
+UNION ALL
+SELECT * FROM ${ref("attribution_models", "attr_time_decay")}
+UNION ALL
+SELECT * FROM ${ref("attribution_models", "attr_u_shape")}
+UNION ALL
+SELECT * FROM ${ref("attribution_models", "attr_data_driven")}

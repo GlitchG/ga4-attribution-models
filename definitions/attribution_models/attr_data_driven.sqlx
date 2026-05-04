@@ -1,0 +1,51 @@
+config {
+  type: "table",
+  schema: "attribution_models",
+  name: "attr_data_driven",
+  tags: ["attribution", "model"],
+  description: "Data-driven attribution: simplified removal-effect heuristic. Full Markov chains require iterative computation outside BigQuery.",
+  dependencies: ["intermediate_int_attribution_path_rows", "intermediate_int_attribution_journeys"]
+}
+
+-- Heuristic: weight by position with decay, calibrated so sum = 1 per conversion.
+-- This is a practical SQL-only approximation; true Markov requires Python/R.
+
+WITH weighted AS (
+  SELECT
+    *,
+    CASE
+      WHEN path_length = 1 THEN 1.0
+      WHEN session_position_asc = 1 THEN 0.5
+      WHEN session_position_desc = 1 THEN 0.3
+      ELSE 0.2 / NULLIF(path_length - 2, 0)
+    END AS heuristic_weight
+  FROM ${ref("intermediate", "int_attribution_path_rows")}
+),
+sums AS (
+  SELECT
+    user_pseudo_id,
+    conversion_id,
+    SUM(heuristic_weight) AS total_weight
+  FROM weighted
+  GROUP BY 1, 2
+)
+SELECT
+  w.user_pseudo_id,
+  w.conversion_id,
+  w.conversion_ts,
+  w.transaction_id,
+  w.purchase_revenue,
+  w.purchase_revenue_in_usd,
+  w.path_length,
+  w.source,
+  w.medium,
+  w.campaign,
+  w.channel,
+  'data_driven' AS model,
+  ROUND(w.heuristic_weight / s.total_weight, 4) AS attributed_credit,
+  ROUND(w.purchase_revenue_in_usd * w.heuristic_weight / s.total_weight, 2) AS attributed_revenue,
+  ROUND(w.purchase_revenue * w.heuristic_weight / s.total_weight, 2) AS attributed_revenue_local
+FROM weighted w
+JOIN sums s
+  ON w.user_pseudo_id = s.user_pseudo_id
+  AND w.conversion_id = s.conversion_id

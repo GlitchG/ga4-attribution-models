@@ -1,0 +1,37 @@
+config {
+  type: "table",
+  schema: "attribution_models",
+  name: "attr_last_non_direct_click",
+  tags: ["attribution", "model"],
+  description: "Last non-direct click attribution: assigns 100% credit to the last non-direct session before conversion.",
+  dependencies: ["intermediate_int_attribution_path_rows"]
+}
+
+WITH ranked AS (
+  SELECT
+    *,
+    ROW_NUMBER() OVER (
+      PARTITION BY user_pseudo_id, conversion_id
+      ORDER BY session_position_desc
+    ) AS rn
+  FROM ${ref("intermediate", "int_attribution_path_rows")}
+  WHERE channel != 'Direct'
+)
+SELECT
+  user_pseudo_id,
+  conversion_id,
+  conversion_ts,
+  transaction_id,
+  purchase_revenue,
+  purchase_revenue_in_usd,
+  path_length,
+  source,
+  medium,
+  campaign,
+  channel,
+  'last_non_direct_click' AS model,
+  1.0 AS attributed_credit,
+  purchase_revenue_in_usd * 1.0 AS attributed_revenue,
+  purchase_revenue * 1.0 AS attributed_revenue_local
+FROM ranked
+WHERE rn = 1

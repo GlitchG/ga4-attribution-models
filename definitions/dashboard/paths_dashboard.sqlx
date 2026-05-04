@@ -1,0 +1,29 @@
+config {
+  type: "view",
+  schema: "dashboard",
+  name: "paths_dashboard",
+  tags: ["dashboard", "daily"],
+  description: "Dashboard-ready view of user journey paths with conversion and revenue data.",
+  dependencies: ["intermediate_int_attribution_journeys"]
+}
+
+SELECT
+  user_pseudo_id,
+  conversion_id,
+  conversion_ts,
+  conversion_event,
+  transaction_id,
+  purchase_revenue,
+  purchase_revenue_in_usd,
+  path_length,
+  path,
+  -- Serialize path for BI tools
+  (
+    SELECT STRING_AGG(channel, ' > ' ORDER BY session_start)
+    FROM UNNEST(path)
+  ) AS path_string,
+  device_category,
+  device_os,
+  country,
+  city
+FROM ${ref("intermediate", "int_attribution_journeys")}

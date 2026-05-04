@@ -1,0 +1,46 @@
+config {
+  type: "table",
+  schema: "attribution_models",
+  name: "attr_time_decay",
+  tags: ["attribution", "model"],
+  description: "Time-decay attribution: credit decays with a 7-day half-life based on hours before conversion.",
+  dependencies: ["intermediate_int_attribution_path_rows"]
+}
+
+-- 7-day half-life: weight = 2^(-hours_before / 168)
+-- Last touch gets highest weight; first touch gets lowest.
+
+WITH weighted AS (
+  SELECT
+    *,
+    POW(2, -hours_before_conversion / 168.0) AS decay_weight
+  FROM ${ref("intermediate", "int_attribution_path_rows")}
+),
+sums AS (
+  SELECT
+    user_pseudo_id,
+    conversion_id,
+    SUM(decay_weight) AS total_weight
+  FROM weighted
+  GROUP BY 1, 2
+)
+SELECT
+  w.user_pseudo_id,
+  w.conversion_id,
+  w.conversion_ts,
+  w.transaction_id,
+  w.purchase_revenue,
+  w.purchase_revenue_in_usd,
+  w.path_length,
+  w.source,
+  w.medium,
+  w.campaign,
+  w.channel,
+  'time_decay' AS model,
+  ROUND(w.decay_weight / s.total_weight, 4) AS attributed_credit,
+  ROUND(w.purchase_revenue_in_usd * w.decay_weight / s.total_weight, 2) AS attributed_revenue,
+  ROUND(w.purchase_revenue * w.decay_weight / s.total_weight, 2) AS attributed_revenue_local
+FROM weighted w
+JOIN sums s
+  ON w.user_pseudo_id = s.user_pseudo_id
+  AND w.conversion_id = s.conversion_id

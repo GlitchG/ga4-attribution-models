@@ -1,0 +1,103 @@
+config {
+  type: "table",
+  schema: "staging",
+  name: "stg_ga4_conversions",
+  tags: ["staging", "daily"],
+  description: "Deduplicated conversion events from GA4 with full ecommerce payload: revenue, items, transaction context, and device/geo attributes.",
+  bigquery: {
+    partitionBy: "DATE(conversion_ts)",
+    clusterBy: ["user_pseudo_id", "event_name"]
+  }
+}
+
+-- Extract ALL conversion events with complete ecommerce data.
+-- Deduplicated by user_pseudo_id + event_timestamp + event_name + transaction_id
+-- to prevent duplicate conversions from double-tagging or Measurement Protocol retries.
+
+WITH raw_conversions AS (
+  SELECT
+    user_pseudo_id,
+    event_timestamp,
+    event_name,
+    event_date,
+    platform,
+
+    -- Full ecommerce struct
+    ecommerce.transaction_id,
+    ecommerce.purchase_revenue,
+    ecommerce.purchase_revenue_in_usd,
+    ecommerce.total_item_quantity,
+    ecommerce.shipping_value,
+    ecommerce.tax_value,
+    ecommerce.refund_value,
+    ecommerce.unique_items,
+    ecommerce.coupon,
+    items,
+
+    -- Event params (common conversion value fields)
+    (SELECT value.float_value FROM UNNEST(event_params) WHERE key = 'value') AS event_value,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'currency') AS event_currency,
+    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'quantity') AS event_quantity,
+
+    -- Device & geo context for attribution enrichment
+    device.category AS device_category,
+    device.operating_system AS device_os,
+    device.language AS device_language,
+    geo.country AS country,
+    geo.region AS region,
+    geo.city AS city,
+
+    -- Session linkage
+    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS session_id
+
+  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
+  -- In production replace with: `your_project.your_dataset.events_*`
+  WHERE _TABLE_SUFFIX BETWEEN '20210101' AND '20210131'
+    AND event_name IN ('purchase', 'begin_checkout', 'add_to_cart', 'add_payment_info', 'add_shipping_info')
+),
+deduped AS (
+  SELECT
+    *,
+    ROW_NUMBER() OVER (
+      PARTITION BY user_pseudo_id, event_timestamp, event_name, COALESCE(transaction_id, CAST(event_timestamp AS STRING))
+      ORDER BY purchase_revenue DESC, purchase_revenue_in_usd DESC
+    ) AS rn
+  FROM raw_conversions
+)
+SELECT
+  user_pseudo_id,
+  TIMESTAMP_MICROS(event_timestamp) AS conversion_ts,
+  event_name AS conversion_event,
+  event_date,
+  platform,
+
+  -- Ecommerce
+  transaction_id,
+  purchase_revenue,
+  purchase_revenue_in_usd,
+  total_item_quantity,
+  shipping_value,
+  tax_value,
+  refund_value,
+  unique_items,
+  coupon,
+  items,
+
+  -- Event values
+  event_value,
+  event_currency,
+  event_quantity,
+
+  -- Context
+  device_category,
+  device_os,
+  device_language,
+  country,
+  region,
+  city,
+
+  -- Session linkage
+  session_id
+
+FROM deduped
+WHERE rn = 1

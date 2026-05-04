@@ -1,0 +1,33 @@
+config {
+  type: "table",
+  schema: "ecommerce_funnel",
+  name: "cart_abandonment",
+  tags: ["funnel", "daily"],
+  description: "Cart abandonment analysis: users who added to cart but did not complete purchase within the same session.",
+  dependencies: ["staging_stg_ga4_conversions"]
+}
+
+WITH cart_sessions AS (
+  SELECT DISTINCT user_pseudo_id, session_id
+  FROM ${ref("staging", "stg_ga4_conversions")}
+  WHERE conversion_event = 'add_to_cart'
+),
+purchase_sessions AS (
+  SELECT DISTINCT user_pseudo_id, session_id
+  FROM ${ref("staging", "stg_ga4_conversions")}
+  WHERE conversion_event = 'purchase'
+)
+SELECT
+  'add_to_cart' AS stage,
+  COUNT(DISTINCT c.user_pseudo_id) AS users_with_cart,
+  COUNT(DISTINCT c.session_id) AS sessions_with_cart,
+  COUNT(DISTINCT p.user_pseudo_id) AS users_converted,
+  COUNT(DISTINCT p.session_id) AS sessions_converted,
+  ROUND(
+    (COUNT(DISTINCT c.user_pseudo_id) - COUNT(DISTINCT p.user_pseudo_id)) * 100.0
+    / NULLIF(COUNT(DISTINCT c.user_pseudo_id), 0), 2
+  ) AS abandonment_rate_pct
+FROM cart_sessions c
+LEFT JOIN purchase_sessions p
+  ON c.user_pseudo_id = p.user_pseudo_id
+  AND c.session_id = p.session_id

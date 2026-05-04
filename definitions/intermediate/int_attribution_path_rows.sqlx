@@ -1,0 +1,69 @@
+config {
+  type: "view",
+  schema: "intermediate",
+  name: "int_attribution_path_rows",
+  tags: ["intermediate", "daily"],
+  description: "Row-level unnested paths for attribution models that prefer tabular access. Each row = one session in a conversion journey. No duplicate session-conversion pairs.",
+  dependencies: ["intermediate_int_attribution_journeys"]
+}
+
+-- Unnest journey paths to rows for row-based attribution models.
+-- Each session-conversion pair is unique (deduplicated at journey build time).
+
+SELECT
+  j.user_pseudo_id,
+  j.conversion_id,
+  j.conversion_ts,
+  j.conversion_event,
+  j.event_date,
+  j.platform,
+
+  -- Ecommerce payload (repeated per row for easy aggregation)
+  j.transaction_id,
+  j.purchase_revenue,
+  j.purchase_revenue_in_usd,
+  j.total_item_quantity,
+  j.shipping_value,
+  j.tax_value,
+  j.refund_value,
+  j.unique_items,
+  j.coupon,
+  j.items,
+  j.event_value,
+  j.event_currency,
+  j.event_quantity,
+
+  -- Context
+  j.device_category,
+  j.device_os,
+  j.device_language,
+  j.country,
+  j.region,
+  j.city,
+  j.conversion_session_id,
+
+  -- Path metadata
+  j.path_length,
+
+  -- Session-level fields
+  tp.session_start,
+  tp.source,
+  tp.medium,
+  tp.campaign,
+  tp.content,
+  tp.term,
+  tp.channel,
+  tp.hours_before_conversion,
+
+  -- Positions for attribution models
+  ROW_NUMBER() OVER (
+    PARTITION BY j.user_pseudo_id, j.conversion_id
+    ORDER BY tp.session_start
+  ) AS session_position_asc,
+  ROW_NUMBER() OVER (
+    PARTITION BY j.user_pseudo_id, j.conversion_id
+    ORDER BY tp.session_start DESC
+  ) AS session_position_desc
+
+FROM ${ref("intermediate", "int_attribution_journeys")} j,
+UNNEST(j.path) AS tp

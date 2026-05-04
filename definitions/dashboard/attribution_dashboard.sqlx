@@ -1,0 +1,31 @@
+config {
+  type: "view",
+  schema: "dashboard",
+  name: "attribution_dashboard",
+  tags: ["dashboard", "daily"],
+  description: "Dashboard-ready view of attribution model comparison by channel with ROAS and CPA metrics.",
+  dependencies: ["attribution_models_attribution_mart", "attribution_models_cross_channel_comparison"]
+}
+
+SELECT
+  m.model,
+  m.channel,
+  m.conversion_id,
+  m.conversion_ts,
+  m.transaction_id,
+  m.purchase_revenue,
+  m.purchase_revenue_in_usd,
+  m.path_length,
+  m.source,
+  m.medium,
+  m.campaign,
+  m.attributed_credit,
+  m.attributed_revenue,
+  m.attributed_revenue_local,
+  c.total_revenue_usd AS channel_total_revenue_usd,
+  c.total_credit AS channel_total_conversions,
+  ROUND(m.attributed_revenue / NULLIF(m.attributed_credit, 0), 2) AS aov_usd
+FROM ${ref("attribution_models", "attribution_mart")} m
+LEFT JOIN ${ref("attribution_models", "cross_channel_comparison")} c
+  ON m.model = c.model
+  AND m.channel = c.channel

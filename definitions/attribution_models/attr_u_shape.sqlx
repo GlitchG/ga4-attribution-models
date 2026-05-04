@@ -1,0 +1,41 @@
+config {
+  type: "table",
+  schema: "attribution_models",
+  name: "attr_u_shape",
+  tags: ["attribution", "model"],
+  description: "U-shape attribution: 40% first touch, 40% last touch, 20% split among middle touches.",
+  dependencies: ["intermediate_int_attribution_path_rows"]
+}
+
+SELECT
+  user_pseudo_id,
+  conversion_id,
+  conversion_ts,
+  transaction_id,
+  purchase_revenue,
+  purchase_revenue_in_usd,
+  path_length,
+  source,
+  medium,
+  campaign,
+  channel,
+  'u_shape' AS model,
+  CASE
+    WHEN path_length = 1 THEN 1.0
+    WHEN session_position_asc = 1 THEN 0.4
+    WHEN session_position_desc = 1 THEN 0.4
+    ELSE ROUND(0.2 / NULLIF(path_length - 2, 0), 4)
+  END AS attributed_credit,
+  CASE
+    WHEN path_length = 1 THEN purchase_revenue_in_usd
+    WHEN session_position_asc = 1 THEN ROUND(purchase_revenue_in_usd * 0.4, 2)
+    WHEN session_position_desc = 1 THEN ROUND(purchase_revenue_in_usd * 0.4, 2)
+    ELSE ROUND(purchase_revenue_in_usd * 0.2 / NULLIF(path_length - 2, 0), 2)
+  END AS attributed_revenue,
+  CASE
+    WHEN path_length = 1 THEN purchase_revenue
+    WHEN session_position_asc = 1 THEN ROUND(purchase_revenue * 0.4, 2)
+    WHEN session_position_desc = 1 THEN ROUND(purchase_revenue * 0.4, 2)
+    ELSE ROUND(purchase_revenue * 0.2 / NULLIF(path_length - 2, 0), 2)
+  END AS attributed_revenue_local
+FROM ${ref("intermediate", "int_attribution_path_rows")}

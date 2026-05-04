@@ -1,0 +1,23 @@
+config {
+  type: "table",
+  schema: "attribution_models",
+  name: "cross_channel_comparison",
+  tags: ["mart", "daily"],
+  description: "Aggregated channel-level metrics across all attribution models for side-by-side ROAS, CPA, and revenue comparison.",
+  dependencies: ["attribution_models_attribution_mart"]
+}
+
+-- Channel-level rollup comparing all attribution models.
+-- Use this to see how model choice affects channel investment recommendations.
+
+SELECT
+  model,
+  channel,
+  COUNT(DISTINCT conversion_id) AS attributed_conversions,
+  SUM(attributed_credit) AS total_credit,
+  ROUND(SUM(attributed_revenue), 2) AS total_revenue_usd,
+  ROUND(SUM(attributed_revenue_local), 2) AS total_revenue_local,
+  ROUND(SUM(attributed_revenue) / NULLIF(SUM(attributed_credit), 0), 2) AS avg_order_value_usd,
+  ROUND(SUM(attributed_revenue_local) / NULLIF(SUM(attributed_credit), 0), 2) AS avg_order_value_local
+FROM ${ref("attribution_models", "attribution_mart")}
+GROUP BY 1, 2

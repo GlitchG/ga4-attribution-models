@@ -1,0 +1,48 @@
+config {
+  type: "table",
+  schema: "ecommerce_funnel",
+  name: "purchase_funnel",
+  tags: ["funnel", "daily"],
+  description: "GA4 ecommerce funnel from session to purchase with conversion rates and revenue at each stage.",
+  dependencies: ["staging_stg_ga4_sessions", "staging_stg_ga4_conversions"]
+}
+
+WITH sessions AS (
+  SELECT
+    user_pseudo_id,
+    session_id,
+    session_start,
+    channel
+  FROM ${ref("staging", "stg_ga4_sessions")}
+),
+funnel_events AS (
+  SELECT
+    user_pseudo_id,
+    session_id,
+    conversion_event,
+    conversion_ts,
+    purchase_revenue_in_usd,
+    COUNT(DISTINCT user_pseudo_id) OVER (PARTITION BY conversion_event) AS users_at_stage,
+    COUNT(DISTINCT session_id) OVER (PARTITION BY conversion_event) AS sessions_at_stage
+  FROM ${ref("staging", "stg_ga4_conversions")}
+),
+stage_order AS (
+  SELECT 'add_to_cart' AS stage, 1 AS stage_num UNION ALL
+  SELECT 'begin_checkout', 2 UNION ALL
+  SELECT 'add_shipping_info', 3 UNION ALL
+  SELECT 'add_payment_info', 4 UNION ALL
+  SELECT 'purchase', 5
+)
+SELECT
+  so.stage_num,
+  so.stage,
+  COUNT(DISTINCT f.user_pseudo_id) AS unique_users,
+  COUNT(DISTINCT f.session_id) AS unique_sessions,
+  COUNT(*) AS total_events,
+  ROUND(SUM(f.purchase_revenue_in_usd), 2) AS stage_revenue_usd,
+  ROUND(COUNT(DISTINCT f.user_pseudo_id) * 100.0 / NULLIF(MAX(COUNT(DISTINCT f.user_pseudo_id)) OVER (), 0), 2) AS pct_of_top_users,
+  ROUND(COUNT(DISTINCT f.session_id) * 100.0 / NULLIF(MAX(COUNT(DISTINCT f.session_id)) OVER (), 0), 2) AS pct_of_top_sessions
+FROM funnel_events f
+JOIN stage_order so ON f.conversion_event = so.stage
+GROUP BY so.stage_num, so.stage
+ORDER BY so.stage_num
