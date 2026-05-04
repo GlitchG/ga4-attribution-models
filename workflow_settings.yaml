@@ -8,4 +8,4 @@ vars:
   end_date: "20210131"
   ga4_project: "bigquery-public-data"
   ga4_dataset: "ga4_obfuscated_sample_ecommerce"
-  lookback_days: 30
+  lookback_days: "30"
