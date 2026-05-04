@@ -2,6 +2,6 @@ config {
   type: "declaration",
   database: dataform.projectConfig.vars.ga4_project,
   schema: dataform.projectConfig.vars.ga4_dataset,
-  name: "ga4_events",
+  name: "events_*",
   description: "External GA4 BigQuery export table (sharded by date)."
 }
