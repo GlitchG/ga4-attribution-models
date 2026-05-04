@@ -1,5 +1,5 @@
 dataformCoreVersion: "3.0.20"
-defaultProject: marketing data analyst
+defaultProject: marketing-data-analyst
 defaultLocation: US
 defaultDataset: attribution_models
 defaultAssertionDataset: attribution_assertions
