@@ -3,12 +3,12 @@ config {
   schema: "intermediate",
   name: "int_attribution_journeys",
   tags: ["intermediate", "daily"],
-  description: "Session-to-conversion journeys: one row per conversion, zero duplicates, ordered path arrays. Includes full ecommerce payload and context.",
+  description: "Session-to-conversion journeys: one row per conversion event type, zero duplicates, ordered path arrays. Includes full ecommerce payload, UTM depth, click IDs, and privacy context.",
   assertions: {
     uniqueKey: ["user_pseudo_id", "conversion_ts", "conversion_event"],
     nonNull: ["user_pseudo_id", "conversion_ts", "path_length"],
     rowConditions: [
-      "purchase_revenue_in_usd >= 0",
+      "conversion_value_usd >= 0",
       "path_length >= 1",
       "ARRAY_LENGTH(path) = path_length"
     ]
@@ -17,10 +17,8 @@ config {
 
 -- Build ordered session journeys per conversion.
 -- Each conversion appears exactly once. Sessions deduplicated within each path.
--- All ecommerce and context fields preserved.
--- CRITICAL: The _TABLE_SUFFIX filter in staging tables truncates the lookback.
--- For exact ${constants.LOOKBACK_DAYS}-day lookback, replace _TABLE_SUFFIX with
--- a date-math filter on event_timestamp in the staging models.
+-- All ecommerce, UTM, click ID, and privacy fields preserved.
+-- Supports multiple conversion_event types (purchase, begin_checkout, add_to_cart, etc.).
 
 WITH conversion_sessions AS (
   SELECT
@@ -54,7 +52,7 @@ WITH conversion_sessions AS (
     c.city,
     c.conversion_session_id,
 
-    -- Session data
+    -- Session data (including new UTM depth, click IDs, page context, privacy)
     s.session_start,
     s.source,
     s.medium,
@@ -62,6 +60,23 @@ WITH conversion_sessions AS (
     s.content,
     s.term,
     s.channel,
+    s.gclid,
+    s.dclid,
+    s.srsltid,
+    s.msclkid,
+    s.fbclid,
+    s.ttclid,
+    s.twclid,
+    s.li_fat_id,
+    s.page_location,
+    s.page_referrer,
+    s.hostname,
+    s.user_first_touch_campaign,
+    s.browser,
+    s.browser_version,
+    s.privacy_analytics_storage,
+    s.privacy_ads_storage,
+    s.privacy_uses_transient_token,
 
     -- Attribution window
     TIMESTAMP_DIFF(c.conversion_ts, s.session_start, HOUR) AS hours_before_conversion,
@@ -77,8 +92,6 @@ WITH conversion_sessions AS (
     ON c.user_pseudo_id = s.user_pseudo_id
     AND s.session_start <= c.conversion_ts
     AND s.session_start >= TIMESTAMP_SUB(c.conversion_ts, INTERVAL ${constants.LOOKBACK_DAYS} DAY)
-
-  WHERE c.conversion_event = 'purchase'
 ),
 deduped_paths AS (
   SELECT *
@@ -95,8 +108,8 @@ agg_journeys AS (
 
     -- Ecommerce (single value per conversion)
     MAX(transaction_id) AS transaction_id,
-    MAX(purchase_revenue) AS purchase_revenue,
-    MAX(purchase_revenue_in_usd) AS purchase_revenue_in_usd,
+    MAX(purchase_revenue) AS conversion_value_local,
+    MAX(purchase_revenue_in_usd) AS conversion_value_usd,
     MAX(total_item_quantity) AS total_item_quantity,
     MAX(shipping_value) AS shipping_value,
     MAX(tax_value) AS tax_value,
@@ -117,7 +130,7 @@ agg_journeys AS (
     MAX(city) AS city,
     MAX(conversion_session_id) AS conversion_session_id,
 
-    -- Path array (ordered by session_start)
+    -- Path array (ordered by session_start) with full UTM + click ID depth
     ARRAY_AGG(
       STRUCT(
         session_start,
@@ -127,6 +140,23 @@ agg_journeys AS (
         content,
         term,
         channel,
+        gclid,
+        dclid,
+        srsltid,
+        msclkid,
+        fbclid,
+        ttclid,
+        twclid,
+        li_fat_id,
+        page_location,
+        page_referrer,
+        hostname,
+        user_first_touch_campaign,
+        browser,
+        browser_version,
+        privacy_analytics_storage,
+        privacy_ads_storage,
+        privacy_uses_transient_token,
         hours_before_conversion
       )
       ORDER BY session_start

@@ -6,7 +6,7 @@ config {
   disabled: true,
   columns: {
     date: "Report date",
-    channel: "Normalised channel name (must match attribution_models.channel values)",
+    channel: "Normalised channel name (must match attribution_models.channel values: Paid Search Brand, Paid Search Non-Brand, Paid Social, Organic Social, Organic Search, Paid Video, Organic Video, Display, Email, Referral, Affiliate, Direct, Cross-network, Paid Shopping, Organic Shopping, SMS, Audio, Mobile Push)",
     campaign: "Campaign name",
     cost_usd: "Cost in USD",
     impressions: "Impressions",

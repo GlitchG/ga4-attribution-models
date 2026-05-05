@@ -3,33 +3,53 @@ config {
   schema: "attribution_models",
   name: "attr_last_non_direct_click",
   tags: ["attribution", "model"],
-  description: "Last non-direct click attribution: assigns 100% credit to the last non-Direct session. Falls back to Direct if the entire path is Direct (no conversions are silently dropped)."
+  description: "Last non-direct click attribution: assigns 100% credit to the last non-Direct session. Falls back to Direct if the entire path is Direct."
 }
+
+-- Find the last non-Direct session per conversion using ROW_NUMBER() over the non-Direct subset.
+-- If no non-Direct sessions exist, fall back to the last session overall (which will be Direct).
 
 WITH ranked AS (
   SELECT
     *,
     ROW_NUMBER() OVER (
       PARTITION BY user_pseudo_id, conversion_id
-      ORDER BY CASE WHEN channel != 'Direct' THEN 0 ELSE 1 END, session_position_desc
-    ) AS rn
+      ORDER BY session_position_asc DESC
+    ) AS rn_desc
   FROM ${ref("intermediate", "int_attribution_path_rows")}
+),
+last_non_direct AS (
+  SELECT *
+  FROM ranked
+  WHERE channel != 'Direct'
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY user_pseudo_id, conversion_id
+    ORDER BY session_position_asc DESC
+  ) = 1
+),
+last_session AS (
+  SELECT *
+  FROM ranked
+  WHERE rn_desc = 1
 )
 SELECT
-  user_pseudo_id,
-  conversion_id,
-  conversion_ts,
-  transaction_id,
-  purchase_revenue,
-  purchase_revenue_in_usd,
-  path_length,
-  source,
-  medium,
-  campaign,
-  channel,
+  COALESCE(lnd.user_pseudo_id, ls.user_pseudo_id) AS user_pseudo_id,
+  COALESCE(lnd.conversion_id, ls.conversion_id) AS conversion_id,
+  COALESCE(lnd.conversion_ts, ls.conversion_ts) AS conversion_ts,
+  COALESCE(lnd.conversion_event, ls.conversion_event) AS conversion_event,
+  COALESCE(lnd.transaction_id, ls.transaction_id) AS transaction_id,
+  COALESCE(lnd.conversion_value_local, ls.conversion_value_local) AS conversion_value_local,
+  COALESCE(lnd.conversion_value_usd, ls.conversion_value_usd) AS conversion_value_usd,
+  COALESCE(lnd.path_length, ls.path_length) AS path_length,
+  COALESCE(lnd.source, ls.source) AS source,
+  COALESCE(lnd.medium, ls.medium) AS medium,
+  COALESCE(lnd.campaign, ls.campaign) AS campaign,
+  COALESCE(lnd.channel, ls.channel) AS channel,
   'last_non_direct_click' AS model,
   1.0 AS attributed_credit,
-  purchase_revenue_in_usd * 1.0 AS attributed_revenue,
-  purchase_revenue * 1.0 AS attributed_revenue_local
-FROM ranked
-WHERE rn = 1
+  ${conversion_config.getValueExpr('COALESCE(lnd.conversion_event, ls.conversion_event)', 'COALESCE(lnd.conversion_value_usd, ls.conversion_value_usd)', '1.0')} AS attributed_value_usd,
+  ${conversion_config.getValueExpr('COALESCE(lnd.conversion_event, ls.conversion_event)', 'COALESCE(lnd.conversion_value_local, ls.conversion_value_local)', '1.0')} AS attributed_value_local
+FROM last_non_direct lnd
+FULL OUTER JOIN last_session ls
+  ON lnd.user_pseudo_id = ls.user_pseudo_id
+  AND lnd.conversion_id = ls.conversion_id

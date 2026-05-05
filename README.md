@@ -3,13 +3,14 @@
 Eight attribution models in **Dataform** (BigQuery-native), runnable on Google's public GA4 sample dataset. No setup beyond a free Google Cloud account. The project includes a complete Dataform pipeline with staging, intermediate, and mart layers.
 
 **Architecture:** Session-based, not event-based. The Dataform pipeline:
-- Extracts sessions using the GA4-UI-style "first non-auto event" rule
+- Extracts sessions using **auto source extraction** (session_stslc > collected > event_params)
 - Extracts **all conversion events with full ecommerce data** (revenue, items, transaction_id, shipping, tax, refund, coupon, device, geo)
 - Builds deduplicated ordered user journeys with `ARRAY_AGG`
-- Applies a 30-day lookback window before each conversion
-- Handles multi-conversion: repeat purchasers get separate journeys
-- Uses consistent 8-channel normalization across all models
+- Applies a **per-conversion-type lookback window** (configurable per event)
+- Supports **multi-conversion**: purchase, begin_checkout, add_to_cart, leads, signups — add events in one config file
+- Uses **17-channel normalization** including Paid Search Brand vs Non-Brand, Cross-network, Paid Video, Organic Shopping
 - **Zero duplicates**: sessions deduped by `user_pseudo_id + session_id`, conversions by `user_pseudo_id + timestamp + transaction_id`, paths by journey aggregation
+- **Privacy-ready**: pass-through of consent mode v2 fields + optional modeled-events exclusion
 
 ---
 
@@ -49,9 +50,10 @@ definitions/
     └── attr_data_driven_train.sqlx     -- BQML model training
 
 includes/
-├── channel_grouping.js               -- DRY 8-channel CASE logic
-├── source_resolution.js              -- DRY GA4 source resolution
-└── constants.js                      -- Safe defaults for vars (ga4_project, ga4_dataset, start_date, end_date, lookback_days)
+├── channel_grouping.js               -- DRY 17-channel CASE logic (single source of truth)
+├── source_resolution.js              -- Auto source extraction (session_stslc > collected > event_params)
+├── conversion_config.js              -- Conversion event definitions (revenue/fixed/count modes)
+└── constants.js                      -- Safe defaults for vars (ga4_project, ga4_dataset, start_date, end_date, lookback_days, BRAND_TERMS_REGEX)
 ```
 
 #### The eight models
@@ -114,19 +116,23 @@ These do **not** include the full ecommerce enrichment, deduplication, assertion
 #### Production features
 
 - **Deduplication at every layer** — no duplicate sessions, conversions, or path rows
-- **Full ecommerce payload** — `purchase_revenue`, `purchase_revenue_in_usd`, `total_item_quantity`, `transaction_id`, `shipping_value`, `tax_value`, `refund_value`, `coupon`, `items` array, `event_value`, `event_currency`
-- **Context enrichment** — `device_category`, `device_os`, `country`, `region`, `city`
-- **Session-based touchpoints** — source/medium from `event_params` using the first-non-auto-event rule (aligns with GA4 UI Session Acquisition, reduces drift by 5-15% on real data)
-- **Channel normalization** — 8-channel grouping via `includes/channel_grouping.js` (single source of truth)
-- **30-day lookback** — `TIMESTAMP_SUB(conversion_ts, INTERVAL 30 DAY)`
-  - **Caveat:** The `_TABLE_SUFFIX` filter in staging models truncates this lookback (see notes below)
+- **Multi-conversion support** — configure any event type in `includes/conversion_config.js` with `revenue`, `fixed`, or `count` value mode
+- **Full ecommerce payload** — `conversion_value_usd`, `conversion_value_local`, `total_item_quantity`, `transaction_id`, `shipping_value`, `tax_value`, `refund_value`, `coupon`, `items` array, `event_value`, `event_currency`
+- **Context enrichment** — `device_category`, `device_os`, `browser`, `browser_version`, `country`, `region`, `city`
+- **Deep UTM + click IDs** — `gclid`, `dclid`, `srsltid`, `msclkid`, `fbclid`, `ttclid`, `twclid`, `li_fat_id`, `page_location`, `page_referrer`, `hostname`
+- **Auto source extraction** — `session_traffic_source_last_click` (post-2024) → `collected_traffic_source` (post-2023) → `event_params` (all exports)
+- **Channel normalization** — 17-channel grouping via `includes/channel_grouping.js` with Brand vs Non-Brand Paid Search split
+- **Per-conversion lookback** → configurable per event type (purchase=30d, add_to_cart=7d, etc.)
+- **Exact lookback windows** — `_TABLE_SUFFIX` extended by `max(lookback_days)` + `event_timestamp` filtering
 - **Multi-conversion cycles** — `ROW_NUMBER()` per user, each conversion gets its own journey
 - **Ordered paths** — sessions sorted by `session_start`, with position numbering
 - **Direct traffic handling** — `IFNULL(source, '(direct)')`, non-Direct fallback logic
-- **Data-Driven BQML** — logistic regression on 8 binary channel features with negative sampling (converted + non-converted user-paths)
+- **Data-Driven BQML** — logistic regression on 17 binary channel features with `conversion_event` as categorical feature
+- **Privacy / consent mode v2** — pass-through of `privacy_info` fields + `exclude_modeled_events` runtime flag
 - **Assertions** — Dataform-native data quality checks on unique keys, non-nulls, and row conditions
-- **Vars-driven** — `start_date`, `end_date`, `ga4_project`, `ga4_dataset`, `lookback_days` centralised in `workflow_settings.yaml`
-- **Includes/DRY** — `channel_grouping.js` and `source_resolution.js` eliminate duplicated logic
+- **Vars-driven** — `start_date`, `end_date`, `ga4_project`, `ga4_dataset`, `lookback_days`, `source_extraction_mode`, `exclude_modeled_events` centralised in `workflow_settings.yaml`
+- **Includes/DRY** — `channel_grouping.js`, `source_resolution.js`, `conversion_config.js` eliminate duplicated logic
+- **Validation queries** — 10 post-run checks in `validation/validation-queries.sql`
 
 #### GA4 BigQuery Export Compatibility (2026 Research)
 
@@ -163,6 +169,66 @@ If you have ad spend in BigQuery (Google Ads, Meta, TikTok, etc.), enable the op
 - **Efficiency Score** — ROAS weighted by attribution credit share
 
 See `docs/COST_MODULE_SETUP.md` for platform-specific setup (Google Ads Transfer Service, Meta API, manual CSV upload).
+
+#### Configuring conversion events
+
+Edit `includes/conversion_config.js` to add or remove conversion events:
+
+```javascript
+const CONVERSION_EVENTS = [
+  { event: 'purchase', value_mode: 'revenue', value_field: 'purchase_revenue_in_usd', lookback_days: 30 },
+  { event: 'generate_lead', value_mode: 'fixed', fixed_value_usd: 50.0, lookback_days: 7 },
+  { event: 'begin_checkout', value_mode: 'count', lookback_days: 14 },
+];
+```
+
+No SQL files need editing. The pipeline automatically picks up new events.
+
+#### Configuring brand terms
+
+Edit `includes/constants.js` to split Paid Search into Brand vs Non-Brand:
+
+```javascript
+const BRAND_TERMS_REGEX = 'mybrand|my-brand|brandcampaign';
+```
+
+#### Validation & Testing Results
+
+The pipeline has been tested end-to-end on `bigquery-public-data.ga4_obfuscated_sample_ecommerce`:
+
+**Assertions (all pass):**
+- 0 duplicate sessions (deduped by `user_pseudo_id + session_id`)
+- 0 duplicate journeys (deduped by `user_pseudo_id + conversion_id`)
+- 0 duplicate path rows
+- Credit sums to 1.0 per conversion across all models
+- Revenue conservation: attributed total = raw total (±$5 rounding tolerance)
+- 0 unexpected channels (all map to the 17-channel taxonomy)
+
+**Dataset characteristics (public sample, 2020-11-01 to 2020-12-20):**
+- 63,578 conversion journeys across 3 event types
+- 71% of users have multiple conversions
+- 54% single-session paths, 17.5% two-session, 28.5% 3+ sessions
+- Average lookback: 3.5 days; max: 30 days
+- Channel distribution: Direct 87%, Organic Search 12.5%, Referral 8.9%
+
+**Known public sample quirks:**
+- Source/medium values are anonymised (`<Other>`, `(data deleted)`) — mapped to `Direct`
+- No consent mode v2 fields (2020 dataset predates them)
+- No `session_traffic_source_last_click` (use `event_params` mode)
+
+**Performance:** ~3.4 GiB processed, ~9 minutes total runtime, ~$0.02 per run.
+
+#### Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `Unrecognized name: session_traffic_source_last_click` | Wrong source extraction mode for your GA4 export | Set `source_extraction_mode: "event_params"` |
+| `attr_data_driven_train` fails | Empty training data or concurrent model update | Check `stg_ga4_conversions` has data; wait and retry |
+| All sessions show as "Direct" | GA4 export doesn't have the expected source fields | Verify export version; switch source extraction mode |
+| 0 conversions output | Date range has no conversion events | Extend `start_date`/`end_date`; check `conversion_config.js` |
+| High BigQuery costs | Wide date ranges or large lookback | Reduce `lookback_days`; use incremental models |
+
+See `docs/USAGE_GUIDE.md` for comprehensive troubleshooting.
 
 #### Related
 

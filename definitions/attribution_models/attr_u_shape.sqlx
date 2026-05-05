@@ -3,38 +3,36 @@ config {
   schema: "attribution_models",
   name: "attr_u_shape",
   tags: ["attribution", "model"],
-  description: "U-shape attribution: 40% first touch, 40% last touch, 20% split among middle touches."
+  description: "U-shaped attribution: 40% first, 40% last, 20% split among middle sessions."
 }
 
+WITH paths AS (
+  SELECT
+    *,
+    CASE
+      WHEN path_length = 1 THEN 1.0
+      WHEN path_length = 2 THEN 0.5
+      WHEN session_position_asc = 1 THEN 0.4
+      WHEN session_position_desc = 1 THEN 0.4
+      ELSE 0.2 / NULLIF(path_length - 2, 0)
+    END AS credit
+  FROM ${ref("intermediate", "int_attribution_path_rows")}
+)
 SELECT
   user_pseudo_id,
   conversion_id,
   conversion_ts,
+  conversion_event,
   transaction_id,
-  purchase_revenue,
-  purchase_revenue_in_usd,
+  conversion_value_local,
+  conversion_value_usd,
   path_length,
   source,
   medium,
   campaign,
   channel,
   'u_shape' AS model,
-  CASE
-    WHEN path_length = 1 THEN 1.0
-    WHEN session_position_asc = 1 THEN 0.4
-    WHEN session_position_desc = 1 THEN 0.4
-    ELSE ROUND(0.2 / NULLIF(path_length - 2, 0), 4)
-  END AS attributed_credit,
-  CASE
-    WHEN path_length = 1 THEN purchase_revenue_in_usd
-    WHEN session_position_asc = 1 THEN ROUND(purchase_revenue_in_usd * 0.4, 2)
-    WHEN session_position_desc = 1 THEN ROUND(purchase_revenue_in_usd * 0.4, 2)
-    ELSE ROUND(purchase_revenue_in_usd * 0.2 / NULLIF(path_length - 2, 0), 2)
-  END AS attributed_revenue,
-  CASE
-    WHEN path_length = 1 THEN purchase_revenue
-    WHEN session_position_asc = 1 THEN ROUND(purchase_revenue * 0.4, 2)
-    WHEN session_position_desc = 1 THEN ROUND(purchase_revenue * 0.4, 2)
-    ELSE ROUND(purchase_revenue * 0.2 / NULLIF(path_length - 2, 0), 2)
-  END AS attributed_revenue_local
-FROM ${ref("intermediate", "int_attribution_path_rows")}
+  ROUND(credit, 4) AS attributed_credit,
+  ${conversion_config.getValueExpr('conversion_event', 'conversion_value_usd', 'ROUND(credit, 4)')} AS attributed_value_usd,
+  ${conversion_config.getValueExpr('conversion_event', 'conversion_value_local', 'ROUND(credit, 4)')} AS attributed_value_local
+FROM paths

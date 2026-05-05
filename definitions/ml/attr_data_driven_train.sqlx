@@ -3,9 +3,13 @@ config {
   schema: "ml",
   name: "attr_data_driven_train",
   tags: ["ml", "attribution"],
-  description: "Trains BQML logistic regression on converted vs non-converted paths for data-driven attribution via feature ablation.",
+  description: "Trains BQML logistic regression on converted vs non-converted paths for data-driven attribution. Single model with conversion_event as categorical feature and 17 dynamic channel flags.",
   hasOutput: true
 }
+
+-- Single model trained on all conversion events with conversion_event as categorical.
+-- If signal mixing across funnel stages causes problems, refactor to per-conversion-event
+-- models in v2.1. See CHANGELOG v2.0 decision #3.
 
 CREATE OR REPLACE TABLE `${database()}.ml.attr_data_driven_train` AS (
   WITH
@@ -13,49 +17,82 @@ CREATE OR REPLACE TABLE `${database()}.ml.attr_data_driven_train` AS (
   positive_paths AS (
     SELECT
       user_pseudo_id,
-      MAX(CASE WHEN channel = 'Paid Search'    THEN 1 ELSE 0 END) AS has_paid_search,
+      conversion_event,
+      MAX(CASE WHEN channel = 'Paid Search Brand' THEN 1 ELSE 0 END) AS has_paid_search_brand,
+      MAX(CASE WHEN channel = 'Paid Search Non-Brand' THEN 1 ELSE 0 END) AS has_paid_search_non_brand,
+      MAX(CASE WHEN channel = 'Paid Social' THEN 1 ELSE 0 END) AS has_paid_social,
+      MAX(CASE WHEN channel = 'Organic Social' THEN 1 ELSE 0 END) AS has_organic_social,
       MAX(CASE WHEN channel = 'Organic Search' THEN 1 ELSE 0 END) AS has_organic_search,
-      MAX(CASE WHEN channel = 'Social'         THEN 1 ELSE 0 END) AS has_social,
-      MAX(CASE WHEN channel = 'Email'          THEN 1 ELSE 0 END) AS has_email,
-      MAX(CASE WHEN channel = 'Display'        THEN 1 ELSE 0 END) AS has_display,
-      MAX(CASE WHEN channel = 'Referral'       THEN 1 ELSE 0 END) AS has_referral,
-      MAX(CASE WHEN channel = 'Affiliate'      THEN 1 ELSE 0 END) AS has_affiliate,
-      MAX(CASE WHEN channel = 'Direct'         THEN 1 ELSE 0 END) AS has_direct,
+      MAX(CASE WHEN channel = 'Paid Video' THEN 1 ELSE 0 END) AS has_paid_video,
+      MAX(CASE WHEN channel = 'Organic Video' THEN 1 ELSE 0 END) AS has_organic_video,
+      MAX(CASE WHEN channel = 'Display' THEN 1 ELSE 0 END) AS has_display,
+      MAX(CASE WHEN channel = 'Email' THEN 1 ELSE 0 END) AS has_email,
+      MAX(CASE WHEN channel = 'Referral' THEN 1 ELSE 0 END) AS has_referral,
+      MAX(CASE WHEN channel = 'Affiliate' THEN 1 ELSE 0 END) AS has_affiliate,
+      MAX(CASE WHEN channel = 'Direct' THEN 1 ELSE 0 END) AS has_direct,
+      MAX(CASE WHEN channel = 'Cross-network' THEN 1 ELSE 0 END) AS has_cross_network,
+      MAX(CASE WHEN channel = 'Paid Shopping' THEN 1 ELSE 0 END) AS has_paid_shopping,
+      MAX(CASE WHEN channel = 'Organic Shopping' THEN 1 ELSE 0 END) AS has_organic_shopping,
+      MAX(CASE WHEN channel = 'SMS' THEN 1 ELSE 0 END) AS has_sms,
+      MAX(CASE WHEN channel = 'Audio' THEN 1 ELSE 0 END) AS has_audio,
+      MAX(CASE WHEN channel = 'Mobile Push' THEN 1 ELSE 0 END) AS has_mobile_push,
       1 AS converted
     FROM ${ref("intermediate", "int_attribution_path_rows")}
-    GROUP BY user_pseudo_id
+    GROUP BY user_pseudo_id, conversion_event
   ),
   -- Negative class: users with sessions but NO conversion in the window
   converted_users AS (
     SELECT DISTINCT user_pseudo_id
     FROM ${ref("staging", "stg_ga4_conversions")}
-    WHERE conversion_event = 'purchase'
   ),
   negative_paths AS (
     SELECT
       s.user_pseudo_id,
-      MAX(CASE WHEN s.channel = 'Paid Search'    THEN 1 ELSE 0 END) AS has_paid_search,
+      'none' AS conversion_event,
+      MAX(CASE WHEN s.channel = 'Paid Search Brand' THEN 1 ELSE 0 END) AS has_paid_search_brand,
+      MAX(CASE WHEN s.channel = 'Paid Search Non-Brand' THEN 1 ELSE 0 END) AS has_paid_search_non_brand,
+      MAX(CASE WHEN s.channel = 'Paid Social' THEN 1 ELSE 0 END) AS has_paid_social,
+      MAX(CASE WHEN s.channel = 'Organic Social' THEN 1 ELSE 0 END) AS has_organic_social,
       MAX(CASE WHEN s.channel = 'Organic Search' THEN 1 ELSE 0 END) AS has_organic_search,
-      MAX(CASE WHEN s.channel = 'Social'         THEN 1 ELSE 0 END) AS has_social,
-      MAX(CASE WHEN s.channel = 'Email'          THEN 1 ELSE 0 END) AS has_email,
-      MAX(CASE WHEN s.channel = 'Display'        THEN 1 ELSE 0 END) AS has_display,
-      MAX(CASE WHEN s.channel = 'Referral'       THEN 1 ELSE 0 END) AS has_referral,
-      MAX(CASE WHEN s.channel = 'Affiliate'      THEN 1 ELSE 0 END) AS has_affiliate,
-      MAX(CASE WHEN s.channel = 'Direct'         THEN 1 ELSE 0 END) AS has_direct,
+      MAX(CASE WHEN s.channel = 'Paid Video' THEN 1 ELSE 0 END) AS has_paid_video,
+      MAX(CASE WHEN s.channel = 'Organic Video' THEN 1 ELSE 0 END) AS has_organic_video,
+      MAX(CASE WHEN s.channel = 'Display' THEN 1 ELSE 0 END) AS has_display,
+      MAX(CASE WHEN s.channel = 'Email' THEN 1 ELSE 0 END) AS has_email,
+      MAX(CASE WHEN s.channel = 'Referral' THEN 1 ELSE 0 END) AS has_referral,
+      MAX(CASE WHEN s.channel = 'Affiliate' THEN 1 ELSE 0 END) AS has_affiliate,
+      MAX(CASE WHEN s.channel = 'Direct' THEN 1 ELSE 0 END) AS has_direct,
+      MAX(CASE WHEN s.channel = 'Cross-network' THEN 1 ELSE 0 END) AS has_cross_network,
+      MAX(CASE WHEN s.channel = 'Paid Shopping' THEN 1 ELSE 0 END) AS has_paid_shopping,
+      MAX(CASE WHEN s.channel = 'Organic Shopping' THEN 1 ELSE 0 END) AS has_organic_shopping,
+      MAX(CASE WHEN s.channel = 'SMS' THEN 1 ELSE 0 END) AS has_sms,
+      MAX(CASE WHEN s.channel = 'Audio' THEN 1 ELSE 0 END) AS has_audio,
+      MAX(CASE WHEN s.channel = 'Mobile Push' THEN 1 ELSE 0 END) AS has_mobile_push,
       0 AS converted
     FROM ${ref("staging", "stg_ga4_sessions")} s
     LEFT JOIN converted_users c USING (user_pseudo_id)
     WHERE c.user_pseudo_id IS NULL
     GROUP BY s.user_pseudo_id
   )
-  SELECT has_paid_search, has_organic_search, has_social, has_email,
-         has_display, has_referral, has_affiliate, has_direct, converted
+  SELECT
+    conversion_event,
+    has_paid_search_brand, has_paid_search_non_brand, has_paid_social, has_organic_social,
+    has_organic_search, has_paid_video, has_organic_video, has_display, has_email,
+    has_referral, has_affiliate, has_direct, has_cross_network, has_paid_shopping,
+    has_organic_shopping, has_sms, has_audio, has_mobile_push,
+    converted
   FROM positive_paths
   UNION ALL
-  SELECT has_paid_search, has_organic_search, has_social, has_email,
-         has_display, has_referral, has_affiliate, has_direct, converted
+  SELECT
+    conversion_event,
+    has_paid_search_brand, has_paid_search_non_brand, has_paid_social, has_organic_social,
+    has_organic_search, has_paid_video, has_organic_video, has_display, has_email,
+    has_referral, has_affiliate, has_direct, has_cross_network, has_paid_shopping,
+    has_organic_shopping, has_sms, has_audio, has_mobile_push,
+    converted
   FROM negative_paths
 );
+
+DROP MODEL IF EXISTS `${database()}.ml.attr_data_driven_model`;
 
 CREATE OR REPLACE MODEL `${database()}.ml.attr_data_driven_model`
 OPTIONS(

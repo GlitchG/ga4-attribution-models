@@ -10,20 +10,20 @@ WITH path_strings AS (
   SELECT
     user_pseudo_id,
     conversion_id,
-    purchase_revenue_in_usd,
+    conversion_value_usd,
     path_length,
     (
       SELECT STRING_AGG(channel, ' > ' ORDER BY session_start)
       FROM UNNEST(path)
     ) AS path_string
-  FROM ${ref("intermediate", "int_attribution_journeys")}
+  FROM `${database()}.intermediate.int_attribution_journeys`
 )
 SELECT
   path_string,
   COUNT(DISTINCT user_pseudo_id) AS unique_users,
   COUNT(DISTINCT conversion_id) AS total_conversions,
-  ROUND(AVG(purchase_revenue_in_usd), 2) AS avg_revenue_usd,
-  ROUND(SUM(purchase_revenue_in_usd), 2) AS total_revenue_usd,
+  ROUND(AVG(conversion_value_usd), 2) AS avg_revenue_usd,
+  ROUND(SUM(conversion_value_usd), 2) AS total_revenue_usd,
   ROUND(AVG(path_length), 1) AS avg_path_length
 FROM path_strings
 GROUP BY 1

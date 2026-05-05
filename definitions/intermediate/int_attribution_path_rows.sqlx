@@ -3,7 +3,7 @@ config {
   schema: "intermediate",
   name: "int_attribution_path_rows",
   tags: ["intermediate", "daily"],
-  description: "Row-level unnested paths for attribution models. Each row = one session in a conversion journey. No duplicate session-conversion pairs.",
+  description: "Row-level unnested paths for attribution models. Each row = one session in a conversion journey. Includes full UTM depth, click IDs, page context, and privacy fields.",
   assertions: {
     uniqueKey: ["user_pseudo_id", "conversion_id", "session_start"],
     nonNull: ["user_pseudo_id", "conversion_id", "session_start", "channel"],
@@ -24,8 +24,8 @@ SELECT
 
   -- Ecommerce payload
   j.transaction_id,
-  j.purchase_revenue,
-  j.purchase_revenue_in_usd,
+  j.conversion_value_local,
+  j.conversion_value_usd,
   j.total_item_quantity,
   j.shipping_value,
   j.tax_value,
@@ -49,7 +49,7 @@ SELECT
   -- Path metadata
   j.path_length,
 
-  -- Session-level fields
+  -- Session-level fields (full UTM depth + click IDs + page context + privacy)
   tp.session_start,
   tp.source,
   tp.medium,
@@ -57,6 +57,23 @@ SELECT
   tp.content,
   tp.term,
   tp.channel,
+  tp.gclid,
+  tp.dclid,
+  tp.srsltid,
+  tp.msclkid,
+  tp.fbclid,
+  tp.ttclid,
+  tp.twclid,
+  tp.li_fat_id,
+  tp.page_location,
+  tp.page_referrer,
+  tp.hostname,
+  tp.user_first_touch_campaign,
+  tp.browser,
+  tp.browser_version,
+  tp.privacy_analytics_storage,
+  tp.privacy_ads_storage,
+  tp.privacy_uses_transient_token,
   tp.hours_before_conversion,
 
   -- Positions for attribution models

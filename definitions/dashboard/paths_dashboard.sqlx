@@ -12,8 +12,8 @@ SELECT
   conversion_ts,
   conversion_event,
   transaction_id,
-  purchase_revenue,
-  purchase_revenue_in_usd,
+  conversion_value_local,
+  conversion_value_usd,
   path_length,
   path,
   (
