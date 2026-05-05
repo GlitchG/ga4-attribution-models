@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased] — v2.0.0
+
+### Locked decisions (v2.0 architecture)
+1. **Target export:** Public sample by default; auto-detection of source extraction mode for private client GA4 exports.
+2. **Conversion scope:** Purchases, leads, signups, micro-conversions. Three value modes: `revenue`, `fixed`, `count`.
+3. **BQML approach:** Single model with `conversion_event` as categorical feature. Per-conversion-event split deferred to v2.1 if needed.
+4. **Schema stability:** Breaking renames locked now (`purchase_revenue_in_usd` → `conversion_value_usd`, etc.). No downstream consumers assumed.
+5. **Markov model:** Out of scope for v2.0. Deferred to v2.1.
+6. **Lookback truncation fix:** `_TABLE_SUFFIX` replaced with `event_timestamp`-based filtering for exact lookback windows.
+7. **Branded paid search:** Regex on campaign name via `includes/constants.js` `BRAND_TERMS_REGEX`.
+8. **Privacy / consent mode v2:** Pass-through of `privacy_info` fields + runtime `exclude_modeled_events` flag.
+
 ## [Unreleased] — 2026-05-05
 
 ### Added
