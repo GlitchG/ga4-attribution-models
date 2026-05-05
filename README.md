@@ -74,16 +74,25 @@ includes/
 git clone https://github.com/GlitchG/ga4-attribution-models.git
 cd ga4-attribution-models
 
-# Install Dataform CLI if needed
+# Install Dataform CLI
 npm install -g @dataform/cli
 
-# 1. Open workflow_settings.yaml and set your GCP project ID:
-#    defaultProject: YOUR_GCP_PROJECT_ID
-# 2. Set defaultLocation to match your BigQuery region (EU or US).
-#    The public GA4 dataset is US-based; if your project is in EU,
-#    BigQuery will still read it (cross-region charges may apply).
-dataform compile
-dataform run
+# 1. Set up credentials: create .df-credentials.json in the project root:
+#    {
+#      "projectId": "YOUR_GCP_PROJECT_ID",
+#      "location": "US",
+#      "credentials": "<your base64-encoded service account JSON or gcloud ADC>"
+#    }
+#    See: https://docs.dataform.co/dataform-cli#authentication
+
+# 2. Edit workflow_settings.yaml:
+#    - Set defaultProject to your GCP project ID
+#    - Set defaultLocation to match your BigQuery region
+#    - The public GA4 dataset is US-based; cross-region reads may incur costs
+
+# 3. Compile and run
+dataform compile --default-database=YOUR_PROJECT_ID
+dataform run   --default-database=YOUR_PROJECT_ID
 ```
 
 All tables are created in the `attribution_models` dataset (configurable in `workflow_settings.yaml`). Dataform auto-creates datasets if they do not exist.
@@ -109,13 +118,12 @@ These do **not** include the full ecommerce enrichment, deduplication, assertion
 - **Context enrichment** — `device_category`, `device_os`, `country`, `region`, `city`
 - **Session-based touchpoints** — source/medium from `event_params` using the first-non-auto-event rule (aligns with GA4 UI Session Acquisition, reduces drift by 5-15% on real data)
 - **Channel normalization** — 8-channel grouping via `includes/channel_grouping.js` (single source of truth)
-- **30-day lookback** — `TIMESTAMP_SUB(conversion_ts, INTERVAL 30 DAY)` (configured in `stg_ga4_sessions.sqlx` and `stg_ga4_conversions.sqlx`)
-  - **Caveat:** The `_TABLE_SUFFIX` filter in staging models truncates this lookback. If your conversion date is 2021-01-31 and `_TABLE_SUFFIX` filters to January, sessions from December 31 (within 30 days) are excluded. For exact lookback, replace `_TABLE_SUFFIX` with a date-math filter on `event_timestamp` in the staging models.
+- **30-day lookback** — `TIMESTAMP_SUB(conversion_ts, INTERVAL 30 DAY)`
+  - **Caveat:** The `_TABLE_SUFFIX` filter in staging models truncates this lookback (see notes below)
 - **Multi-conversion cycles** — `ROW_NUMBER()` per user, each conversion gets its own journey
 - **Ordered paths** — sessions sorted by `session_start`, with position numbering
-- **Direct traffic handling** — `IFNULL(source, '(direct)')`, non-Direct fallback logic (last-non-direct model falls back to Direct instead of dropping conversions)
-- **BigQuery partitioning & clustering** — staging and mart tables partitioned by `DATE(conversion_ts)` for cost control
-- **Incremental tables** — `stg_ga4_sessions` and `stg_ga4_conversions` use `type: incremental` with 3-day partition overwrite for production cost control
+- **Direct traffic handling** — `IFNULL(source, '(direct)')`, non-Direct fallback logic
+- **Data-Driven BQML** — logistic regression on 8 binary channel features with negative sampling (converted + non-converted user-paths)
 - **Assertions** — Dataform-native data quality checks on unique keys, non-nulls, and row conditions
 - **Vars-driven** — `start_date`, `end_date`, `ga4_project`, `ga4_dataset`, `lookback_days` centralised in `workflow_settings.yaml`
 - **Includes/DRY** — `channel_grouping.js` and `source_resolution.js` eliminate duplicated logic

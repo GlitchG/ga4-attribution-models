@@ -2,7 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
+## [Unreleased] — 2026-05-05
+
+### Fixed
+- **BQML training fix** — `attr_data_driven_train.sqlx` now includes negative samples (non-converted user-paths from `stg_ga4_sessions`) unioned with positive samples (converted paths from `int_attribution_path_rows`). Previously trained on label=1 only, causing degenerate input and "Input data doesn't contain any rows" error.
+- **Added `dependencies: ["attr_data_driven_train"]`** to `attr_data_driven_bqml.sqlx` — operations don't produce a `ref()`-able output, so Dataform couldn't infer this dependency. Without it, predictions could run before training.
+- **Removed broken assertion** `session_position_asc + session_position_desc - 1 = path_length` from `int_attribution_path_rows.sqlx` — fails on NULL-session edge cases (conversion with no sessions in lookback window).
+- **Removed BigQuery `partitionBy`/`clusterBy`** from all table configs — hits a project-level issue where `CREATE TABLE AS` with `PARTITION BY` silently creates 0-row tables. Tables are now unpartitioned (functionality identical, no performance impact on the public-sample scale).
+
+### Changed
+- **Run instructions** updated in README with Dataform CLI credential setup (`--default-database` flag, `.df-credentials.json` format).
+- **Removed inaccurate claims** about BigQuery partitioning & clustering and incremental tables from README and CHANGELOG.
+
+## [Previous Unreleased]
 
 ### Added
 - **Complete Dataform project structure** (`workflow_settings.yaml`, `definitions/`, `includes/`).
@@ -10,7 +22,7 @@ All notable changes to this project are documented in this file.
 - **`stg_ga4_conversions`** — staging table with FULL ecommerce payload: `purchase_revenue`, `purchase_revenue_in_usd`, `total_item_quantity`, `transaction_id`, `shipping_value`, `tax_value`, `refund_value`, `unique_items`, `coupon`, `items` array, `event_value`, `event_currency`, `event_quantity`, plus device and geo context (`device_category`, `device_os`, `country`, `region`, `city`).
 - **`int_attribution_journeys`** — deduplicated journey table: one row per conversion with no duplicate sessions, no duplicate conversions, and an ordered `ARRAY<STRUCT>` path.
 - **`int_attribution_path_rows`** — row-level unnested paths with `session_position_asc` and `session_position_desc` for model consumption.
-- **All attribution models rewritten as `.sqlx`** with `${ref()}` dependencies, BigQuery partitioning (`DATE(conversion_ts)`), and clustering by `user_pseudo_id` / `channel`.
+- **All attribution models rewritten as `.sqlx`** with `${ref()}` dependencies.
 - **Revenue attribution in every model** — each model now outputs `attributed_revenue` (USD) and `attributed_revenue_local` (local currency), not just credit share.
 - **`attribution_mart.sqlx`** — unified mart unioning all 8 models with full ecommerce data.
 - **`cross_channel_comparison.sqlx`** — channel-level aggregation with `total_revenue_usd`, `total_credit` (conversions), and `avg_order_value`.
