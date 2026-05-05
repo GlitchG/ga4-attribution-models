@@ -77,8 +77,6 @@ WITH conversion_sessions AS (
     ON c.user_pseudo_id = s.user_pseudo_id
     AND s.session_start <= c.conversion_ts
     AND s.session_start >= TIMESTAMP_SUB(c.conversion_ts, INTERVAL ${constants.LOOKBACK_DAYS} DAY)
-
-  WHERE c.conversion_event = 'purchase'
 ),
 deduped_paths AS (
   SELECT *

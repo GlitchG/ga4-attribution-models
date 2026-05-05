@@ -54,7 +54,7 @@ WITH raw_conversions AS (
 
   FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
   WHERE _TABLE_SUFFIX BETWEEN '${constants.START_DATE}' AND '${constants.END_DATE}'
-    AND event_name IN ('purchase', 'begin_checkout', 'add_to_cart', 'add_payment_info', 'add_shipping_info')
+    AND event_name IN (${conversion_config.getEventList()})
 ),
 deduped AS (
   SELECT
