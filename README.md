@@ -77,12 +77,16 @@ cd ga4-attribution-models
 # Install Dataform CLI if needed
 npm install -g @dataform/cli
 
-# Set your GCP project in workflow_settings.yaml, then:
+# 1. Open workflow_settings.yaml and set your GCP project ID:
+#    defaultProject: YOUR_GCP_PROJECT_ID
+# 2. Set defaultLocation to match your BigQuery region (EU or US).
+#    The public GA4 dataset is US-based; if your project is in EU,
+#    BigQuery will still read it (cross-region charges may apply).
 dataform compile
 dataform run
 ```
 
-All tables are created in the `attribution_models` dataset (configurable in `workflow_settings.yaml`).
+All tables are created in the `attribution_models` dataset (configurable in `workflow_settings.yaml`). Dataform auto-creates datasets if they do not exist.
 
 To use with your own GA4 export: change `vars.ga4_project` and `vars.ga4_dataset` in `workflow_settings.yaml` — no SQL edits needed.
 
