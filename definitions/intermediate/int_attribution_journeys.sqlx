@@ -91,7 +91,7 @@ WITH conversion_sessions AS (
   LEFT JOIN ${ref("staging", "stg_ga4_sessions")} s
     ON c.user_pseudo_id = s.user_pseudo_id
     AND s.session_start <= c.conversion_ts
-    AND s.session_start >= TIMESTAMP_SUB(c.conversion_ts, INTERVAL ${constants.LOOKBACK_DAYS} DAY)
+    AND TIMESTAMP_DIFF(c.conversion_ts, s.session_start, DAY) <= ${conversion_config.getLookbackCase('c.conversion_event')}
 ),
 deduped_paths AS (
   SELECT *

@@ -3,7 +3,7 @@ config {
   schema: "ml",
   name: "attr_data_driven_train",
   tags: ["ml", "attribution"],
-  description: "Trains BQML logistic regression on converted vs non-converted paths for data-driven attribution. Single model with conversion_event as categorical feature and 17 dynamic channel flags.",
+  description: "Trains BQML logistic regression on converted vs non-converted paths for data-driven attribution. Single model with 17 dynamic channel flags. NOTE: conversion_event is intentionally excluded as a feature to avoid signal mixing across funnel stages (see CHANGELOG v2.0 decision #3).",
   hasOutput: true
 }
 
@@ -17,7 +17,6 @@ CREATE OR REPLACE TABLE `${database()}.ml.attr_data_driven_train` AS (
   positive_paths AS (
     SELECT
       user_pseudo_id,
-      conversion_event,
       MAX(CASE WHEN channel = 'Paid Search Brand' THEN 1 ELSE 0 END) AS has_paid_search_brand,
       MAX(CASE WHEN channel = 'Paid Search Non-Brand' THEN 1 ELSE 0 END) AS has_paid_search_non_brand,
       MAX(CASE WHEN channel = 'Paid Social' THEN 1 ELSE 0 END) AS has_paid_social,
@@ -36,9 +35,10 @@ CREATE OR REPLACE TABLE `${database()}.ml.attr_data_driven_train` AS (
       MAX(CASE WHEN channel = 'SMS' THEN 1 ELSE 0 END) AS has_sms,
       MAX(CASE WHEN channel = 'Audio' THEN 1 ELSE 0 END) AS has_audio,
       MAX(CASE WHEN channel = 'Mobile Push' THEN 1 ELSE 0 END) AS has_mobile_push,
+      MAX(CASE WHEN channel = 'Unknown' THEN 1 ELSE 0 END) AS has_unknown,
       1 AS converted
     FROM ${ref("intermediate", "int_attribution_path_rows")}
-    GROUP BY user_pseudo_id, conversion_event
+    GROUP BY user_pseudo_id
   ),
   -- Negative class: users with sessions but NO conversion in the window
   converted_users AS (
@@ -48,7 +48,6 @@ CREATE OR REPLACE TABLE `${database()}.ml.attr_data_driven_train` AS (
   negative_paths AS (
     SELECT
       s.user_pseudo_id,
-      'none' AS conversion_event,
       MAX(CASE WHEN s.channel = 'Paid Search Brand' THEN 1 ELSE 0 END) AS has_paid_search_brand,
       MAX(CASE WHEN s.channel = 'Paid Search Non-Brand' THEN 1 ELSE 0 END) AS has_paid_search_non_brand,
       MAX(CASE WHEN s.channel = 'Paid Social' THEN 1 ELSE 0 END) AS has_paid_social,
@@ -67,6 +66,7 @@ CREATE OR REPLACE TABLE `${database()}.ml.attr_data_driven_train` AS (
       MAX(CASE WHEN s.channel = 'SMS' THEN 1 ELSE 0 END) AS has_sms,
       MAX(CASE WHEN s.channel = 'Audio' THEN 1 ELSE 0 END) AS has_audio,
       MAX(CASE WHEN s.channel = 'Mobile Push' THEN 1 ELSE 0 END) AS has_mobile_push,
+      MAX(CASE WHEN s.channel = 'Unknown' THEN 1 ELSE 0 END) AS has_unknown,
       0 AS converted
     FROM ${ref("staging", "stg_ga4_sessions")} s
     LEFT JOIN converted_users c USING (user_pseudo_id)
@@ -74,20 +74,18 @@ CREATE OR REPLACE TABLE `${database()}.ml.attr_data_driven_train` AS (
     GROUP BY s.user_pseudo_id
   )
   SELECT
-    conversion_event,
     has_paid_search_brand, has_paid_search_non_brand, has_paid_social, has_organic_social,
     has_organic_search, has_paid_video, has_organic_video, has_display, has_email,
     has_referral, has_affiliate, has_direct, has_cross_network, has_paid_shopping,
-    has_organic_shopping, has_sms, has_audio, has_mobile_push,
+    has_organic_shopping, has_sms, has_audio, has_mobile_push, has_unknown,
     converted
   FROM positive_paths
   UNION ALL
   SELECT
-    conversion_event,
     has_paid_search_brand, has_paid_search_non_brand, has_paid_social, has_organic_social,
     has_organic_search, has_paid_video, has_organic_video, has_display, has_email,
     has_referral, has_affiliate, has_direct, has_cross_network, has_paid_shopping,
-    has_organic_shopping, has_sms, has_audio, has_mobile_push,
+    has_organic_shopping, has_sms, has_audio, has_mobile_push, has_unknown,
     converted
   FROM negative_paths
 );

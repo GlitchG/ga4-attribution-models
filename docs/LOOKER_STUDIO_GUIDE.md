@@ -33,7 +33,7 @@ You'll add **three** data sources, each pointing to a dashboard view:
 > ```
 > Custom queries let you add WHERE clauses later without modifying the pipeline. Replace `marketingdataanalyst` with your GCP project ID.
 
-Click **Add**. Looker Studio will show a preview of ~58K rows with columns: `model`, `channel`, `conversion_id`, `conversion_ts`, `attributed_credit`, `attributed_revenue`, `aov_usd`, `source`, `medium`, `campaign`, `path_length`, etc.
+Click **Add**. Looker Studio will show a preview of ~58K rows with columns: `model`, `channel`, `conversion_id`, `conversion_event`, `conversion_ts`, `value_mode`, `transaction_id`, `attributed_credit`, `attributed_value_usd`, `attributed_value_local`, `aov_usd`, `source`, `medium`, `campaign`, `path_length`, etc.
 
 #### Data Source 2: Funnel
 
@@ -71,7 +71,7 @@ You can also connect directly to the underlying tables for more flexibility:
 -- Model mart: all 8 models, row-level touchpoint detail
 SELECT * FROM `marketingdataanalyst.attribution_models.attribution_mart`
 
--- Channel comparison: pre-aggregated channel × model metrics
+-- Channel comparison: pre-aggregated channel × model × conversion_event metrics
 SELECT * FROM `marketingdataanalyst.attribution_models.cross_channel_comparison`
 
 -- Ecommerce funnel: raw funnel steps
@@ -94,8 +94,8 @@ Add four scorecards at the top of your page for an at-a-glance summary:
 | Scorecard | Metric | Filter |
 |-----------|--------|--------|
 | Total Conversions | `SUM(attributed_credit)` | — |
-| Total Revenue (USD) | `SUM(attributed_revenue)` | — |
-| Total Revenue (Local) | `SUM(attributed_revenue_local)` | — |
+| Total Revenue (USD) | `SUM(attributed_value_usd)` | — |
+| Total Revenue (Local) | `SUM(attributed_value_local)` | — |
 | Average Order Value | `AVG(aov_usd)` | — |
 
 *How to add:* Click **Add a chart** → **Scorecard**. Drag the metric from the data panel. For AOV, click the scorecard, go to Data tab, and select `aov_usd` → `AVG`.
@@ -108,9 +108,9 @@ Add four scorecards at the top of your page for an at-a-glance summary:
 |---------|-------|
 | Chart type | **Clustered Bar Chart** |
 | Dimension | `channel` |
-| Metric | `SUM(attributed_revenue)` |
+| Metric | `SUM(attributed_value_usd)` |
 | Breakdown Dimension | `model` |
-| Sort | `SUM(attributed_revenue)` → Descending |
+| Sort | `SUM(attributed_value_usd)` → Descending |
 
 *What you'll see:* Eight bars per channel (one per model). Typically, Last Click concentrates revenue on the final channel, while Linear and Time Decay spread it across all channels in the journey.
 
@@ -140,8 +140,8 @@ Create a table showing how much more or less credit each model gives vs. Last Cl
 
 **Calculated Field — `variance_from_last_click`:**
 ```
-attributed_revenue - 
-SUM(CASE WHEN model = 'last_click' THEN attributed_revenue ELSE 0 END) 
+attributed_value_usd - 
+SUM(CASE WHEN model = 'last_click' THEN attributed_value_usd ELSE 0 END) 
   / SUM(CASE WHEN model = 'last_click' THEN attributed_credit ELSE 0 END) 
   * attributed_credit
 ```
@@ -151,12 +151,12 @@ Simpler alternative — two calculated fields:
 
 **`revenue_last_click`** (per channel):
 ```
-SUM(CASE WHEN model = 'last_click' THEN attributed_revenue ELSE 0 END)
+SUM(CASE WHEN model = 'last_click' THEN attributed_value_usd ELSE 0 END)
 ```
 
 **`revenue_vs_last_click_pct`:**
 ```
-(SUM(attributed_revenue) - SUM(revenue_last_click)) / NULLIF(SUM(revenue_last_click), 0)
+(SUM(attributed_value_usd) - SUM(revenue_last_click)) / NULLIF(SUM(revenue_last_click), 0)
 ```
 
 Chart settings:
@@ -182,20 +182,20 @@ Use **conditional formatting**: green for positive (>0 means model gives MORE cr
 | Chart type | **Pivot Table** |
 | Rows | `channel` |
 | Columns | `model` |
-| Metric | `SUM(attributed_revenue)` |
+| Metric | `SUM(attributed_value_usd)` |
 
 *How to add the pivot:*
 1. Click **Add a chart** → **Pivot Table** (under Table section)
 2. Drag `channel` to **Row Dimension**
 3. Drag `model` to **Column Dimension**
-4. Drag `attributed_revenue` to **Metrics** (click its aggregation icon, set to SUM)
+4. Drag `attributed_value_usd` to **Metrics** (click its aggregation icon, set to SUM)
 
 *Formatting:*
 - Click the pivot table → **Style** tab
 - Under **Conditional formatting**, add a color scale:
   - Min: white or light blue
   - Max: dark blue
-  - Apply to: `SUM(attributed_revenue)`
+  - Apply to: `SUM(attributed_value_usd)`
 
 *What you'll see:* A channel × model grid. "Referral" under Last Click might be dark (high revenue), but under First Click it could be lighter — revealing how credit shifts based on position.
 
@@ -222,8 +222,8 @@ Use the **Paths** data source.
 | Data source | `paths_dashboard` |
 | Chart type | **Table** |
 | Dimension | `path_string` |
-| Metrics | `purchase_revenue_in_usd` (SUM), `path_length` (AVG), Record Count |
-| Sort | `SUM(purchase_revenue_in_usd)` → Descending |
+| Metrics | `conversion_value_usd` (SUM), `path_length` (AVG), Record Count |
+| Sort | `SUM(conversion_value_usd)` → Descending |
 | Rows per page | 25 |
 
 *What you'll see:* Paths like "Organic Search > Direct > Referral > Purchase" with revenue and path length. The `path_string` column shows the full sequence using `>` as a separator.
@@ -247,7 +247,7 @@ This shows how many conversions happen at each path length. Most conversions typ
 |---------|-------|
 | Chart type | **Bar Chart** |
 | Dimension | `path_length` |
-| Metric | `SUM(purchase_revenue_in_usd)` |
+| Metric | `SUM(conversion_value_usd)` |
 
 Compare this with chart 4.2: longer paths may represent higher-value purchases.
 
@@ -360,14 +360,14 @@ With `funnel_dashboard`, use the pre-calculated `pct_of_top_users` field instead
 | Data source | Custom query (see below) |
 | Source dimension (Level 1) | `channel` |
 | Target dimension (Level 2) | `model` |
-| Value metric | `SUM(attributed_revenue)` |
+| Value metric | `SUM(attributed_value_usd)` |
 
 **Custom Query for Sankey:**
 ```sql
 SELECT
   channel as source,
   model as target,
-  SUM(attributed_revenue) as revenue_usd
+  SUM(attributed_value_usd) as revenue_usd
 FROM `marketingdataanalyst.attribution_models.attribution_mart`
 GROUP BY 1, 2
 ```
@@ -384,14 +384,14 @@ Use `cross_channel_comparison` for a table-based flow:
 | Chart type | **Table** with heatmap |
 | Rows | `channel` |
 | Columns | `model` |
-| Metric | `total_revenue_usd` |
+| Metric | `total_value_usd` |
 
 Apply conditional formatting (gradient) — this gives a similar visual result to a Sankey.
 
 **Option C — Export to Flourish / Datawrapper**
 
 For publication-quality Sankeys:
-1. Create a table in Looker Studio with `channel`, `model`, `SUM(attributed_revenue)`
+1. Create a table in Looker Studio with `channel`, `model`, `SUM(attributed_value_usd)`
 2. Export as CSV
 3. Import into [Flourish](https://flourish.studio/) or [SankeyMATIC](https://sankeymatic.com/)
 
@@ -403,7 +403,7 @@ Create a stacked bar alternative:
 |---------|-------|
 | Chart type | **100% Stacked Bar** |
 | Dimension | `channel` |
-| Metric | `SUM(attributed_revenue)` |
+| Metric | `SUM(attributed_value_usd)` |
 | Breakdown | `model` |
 
 This shows how each model distributes revenue across channels as proportions.
@@ -420,7 +420,7 @@ This shows how each model distributes revenue across channels as proportions.
 |---------|-------|
 | Chart type | **Stacked Bar Chart** |
 | Dimension | `model` |
-| Metric | `SUM(attributed_revenue)` |
+| Metric | `SUM(attributed_value_usd)` |
 | Breakdown | `channel` |
 
 *What you'll see:* Eight bars, one per model. The total height of each bar should be identical (total revenue is the same regardless of model — only the distribution across channels changes). If bar heights differ, data may have a `UNION ALL` issue.
@@ -434,9 +434,9 @@ Use the `cross_channel_comparison` table via custom query:
 ```sql
 SELECT
   model,
-  SUM(total_revenue_usd) as total_revenue,
+  SUM(total_value_usd) as total_revenue,
   SUM(attributed_conversions) as total_conversions,
-  ROUND(SUM(total_revenue_usd) / NULLIF(SUM(attributed_conversions), 0), 2) as overall_aov
+  ROUND(SUM(total_value_usd) / NULLIF(SUM(attributed_conversions), 0), 2) as overall_aov
 FROM `marketingdataanalyst.attribution_models.cross_channel_comparison`
 GROUP BY model
 ORDER BY model
@@ -461,7 +461,7 @@ Add this as a percentage column to confirm each model accounts for 12.5% (1/8) o
 |---------|-------|
 | Chart type | **Radar Chart** |
 | Dimension | `channel` |
-| Metric | `SUM(attributed_revenue)` |
+| Metric | `SUM(attributed_value_usd)` |
 | Breakdown | `model` (limit to 3–4 models for readability) |
 
 *What you'll see:* Overlapping polygons showing channel attribution profiles. First Click will spike on early-journey channels; Last Click will spike on late-journey channels.
@@ -478,7 +478,7 @@ Add this as a percentage column to confirm each model accounts for 12.5% (1/8) o
 |---------|-------|
 | Chart type | **Time Series Chart** (Line) |
 | Dimension | `conversion_ts` (set granularity to **Date**) |
-| Metric | `SUM(attributed_revenue)` |
+| Metric | `SUM(attributed_value_usd)` |
 | Breakdown | `model` |
 
 > **Important:** Make sure `conversion_ts` is recognized as a Date/Time field. If Looker Studio treats it as text, click the field → **Type** → **Date & Time** → **Date**.
@@ -491,7 +491,7 @@ Add this as a percentage column to confirm each model accounts for 12.5% (1/8) o
 |---------|-------|
 | Chart type | **Time Series Chart** (Stacked Area) |
 | Dimension | `conversion_ts` (Date) |
-| Metric | `SUM(attributed_revenue)` |
+| Metric | `SUM(attributed_value_usd)` |
 | Breakdown | `channel` |
 
 Add a **Filter Control** for `model` so users can switch between models and see how channel composition changes over time.
@@ -502,8 +502,8 @@ Create a calculated field that measures the delta between two models:
 
 **`delta_first_vs_last`:**
 ```
-SUM(CASE WHEN model = 'first_click' THEN attributed_revenue ELSE 0 END) 
-- SUM(CASE WHEN model = 'last_click' THEN attributed_revenue ELSE 0 END)
+SUM(CASE WHEN model = 'first_click' THEN attributed_value_usd ELSE 0 END) 
+- SUM(CASE WHEN model = 'last_click' THEN attributed_value_usd ELSE 0 END)
 ```
 
 | Setting | Value |
@@ -518,8 +518,8 @@ This shows whether the "attribution gap" between First Click and Last Click wide
 
 **Calculated Field — `wow_revenue_change`:**
 ```
-(SUM(attributed_revenue) - SUM(attributed_revenue, -7)) 
-  / NULLIF(SUM(attributed_revenue, -7), 0)
+(SUM(attributed_value_usd) - SUM(attributed_value_usd, -7)) 
+  / NULLIF(SUM(attributed_value_usd, -7), 0)
 ```
 
 | Setting | Value |
@@ -668,7 +668,7 @@ The `dashboard.attribution_dashboard` and `cross_channel_comparison` views query
 | "No data" on all charts | Dataform pipeline hasn't been run | Run `dataform run` in your project |
 | Only 6 models appear (not 8) | `data_driven_bqml` and `position_weighted` may have 0 rows on small datasets | Expected on public sample; ignore or add `WHERE model IS NOT NULL` filter |
 | Date filter shows wrong range | `conversion_ts` field type is Text | Edit data source → change `conversion_ts` type to Date & Time |
-| Revenue totals differ between models | Normal — each model distributes the SAME total revenue differently across channels | Verify `SUM(attributed_revenue)` per model matches; if not, check UNION in mart |
+| Revenue totals differ between models | Normal — each model distributes the SAME total revenue differently across channels | Verify `SUM(attributed_value_usd)` per model matches; if not, check UNION in mart |
 | Charts show "Data Studio can't display this field" | Aggregation conflict | Set field aggregation explicitly (SUM, AVG, etc.) in the Data tab |
 | Funnel chart stages out of order | Looker Studio sorts alphabetically | Set custom sort using `stage_num` field |
 
@@ -681,22 +681,24 @@ The `dashboard.attribution_dashboard` and `cross_channel_comparison` views query
 | Field | Type | Description |
 |-------|------|-------------|
 | `model` | Text | Attribution model name: first_click, last_click, last_non_direct_click, linear, time_decay, u_shape, position_weighted, data_driven_bqml |
-| `channel` | Text | Marketing channel (8-channel taxonomy): Paid Search, Organic Search, Social, Email, Display, Referral, Affiliate, Direct, or Other |
+| `channel` | Text | Marketing channel (17-channel taxonomy): Cross-network, Paid Search Brand, Paid Search Non-Brand, Paid Shopping, Paid Social, Paid Video, Display, Organic Search, Organic Shopping, Organic Social, Organic Video, Email, SMS, Affiliate, Audio, Mobile Push, Referral, Direct, Unknown |
 | `conversion_id` | Text | Globally unique conversion identifier |
 | `conversion_ts` | DateTime | Timestamp of the conversion event |
+| `conversion_event` | Text | Event name (e.g., 'purchase', 'generate_lead', 'subscribe') |
 | `transaction_id` | Text | Ecommerce transaction ID (may be NULL for non-purchase conversions) |
 | `purchase_revenue` | Number | Revenue in local currency |
-| `purchase_revenue_in_usd` | Number | Revenue converted to USD |
+| `conversion_value_usd` | Number | Revenue converted to USD |
+| `value_mode` | Text | Value interpretation mode: revenue, fixed, or count |
 | `path_length` | Number | Number of touchpoints in the conversion journey |
 | `source` | Text | Traffic source (e.g., google, bing, direct) |
 | `medium` | Text | Traffic medium (e.g., organic, cpc, referral) |
 | `campaign` | Text | Campaign name (if tagged) |
 | `attributed_credit` | Number (0–1) | Fractional credit assigned by the model (1.0 = 100%) |
-| `attributed_revenue` | Number | Revenue in USD × attributed_credit |
-| `attributed_revenue_local` | Number | Revenue in local currency × attributed_credit |
-| `channel_total_revenue_usd` | Number | Total revenue for this channel across all conversions (from cross_channel_comparison) |
+| `attributed_value_usd` | Number | Revenue in USD × attributed_credit |
+| `attributed_value_local` | Number | Revenue in local currency × attributed_credit |
+| `channel_total_value_usd` | Number | Total value for this channel across all conversions (from cross_channel_comparison) |
 | `channel_total_conversions` | Number | Total credited conversions for this channel |
-| `aov_usd` | Number | Average order value = attributed_revenue / attributed_credit |
+| `aov_usd` | Number | Average order value = attributed_value_usd / attributed_credit |
 
 ### `dashboard.funnel_dashboard` (Funnel data source)
 
@@ -722,7 +724,7 @@ The `dashboard.attribution_dashboard` and `cross_channel_comparison` views query
 | `conversion_event` | Text | Event name (e.g., 'purchase') |
 | `transaction_id` | Text | Ecommerce transaction ID |
 | `purchase_revenue` | Number | Revenue in local currency |
-| `purchase_revenue_in_usd` | Number | Revenue in USD |
+| `conversion_value_usd` | Number | Revenue in USD |
 | `path_length` | Number | Number of touchpoints |
 | `path` | Array / JSON | Full path as array of touchpoint structs |
 | `path_string` | Text | Channel path as string ("Organic Search > Direct > Referral") |
@@ -739,8 +741,8 @@ To build a complete dashboard in ~20 minutes, follow this minimal recipe:
 
 **Page 1 — Attribution Overview:**
 1. 4 scorecards (total conversions, revenue USD, revenue local, AOV) — top row
-2. Clustered bar chart: `channel` × `model` with `SUM(attributed_revenue)` — center
-3. Pivot table: `channel` rows, `model` columns, `SUM(attributed_revenue)` — bottom
+2. Clustered bar chart: `channel` × `model` with `SUM(attributed_value_usd)` — center
+3. Pivot table: `channel` rows, `model` columns, `SUM(attributed_value_usd)` — bottom
 4. Controls: Date range + Model selector — top
 
 **Page 2 — Funnel & Conversion:**
@@ -750,7 +752,7 @@ To build a complete dashboard in ~20 minutes, follow this minimal recipe:
 4. Controls: Date range — top
 
 **Page 3 — User Journeys:**
-1. Table: `path_string` + `purchase_revenue_in_usd` — center
+1. Table: `path_string` + `conversion_value_usd` — center
 2. Path length bar chart — right sidebar
 3. Device pie chart — left sidebar
 4. Controls: Date range + Path length slider — top
@@ -767,8 +769,8 @@ SELECT
   model,
   COUNT(DISTINCT conversion_id) as conversion_count,
   SUM(attributed_credit) as total_credited_conversions,
-  SUM(attributed_revenue) as total_revenue_usd,
-  ROUND(AVG(attributed_revenue / NULLIF(attributed_credit, 0)), 2) as avg_aov,
+  SUM(attributed_value_usd) as total_revenue_usd,
+  ROUND(AVG(attributed_value_usd / NULLIF(attributed_credit, 0)), 2) as avg_aov,
   COUNT(DISTINCT channel) as channels_used
 FROM `marketingdataanalyst.attribution_models.attribution_mart`
 GROUP BY model
@@ -781,14 +783,15 @@ ORDER BY model
 -- This is the cross_channel_comparison table — already exists
 SELECT
   model,
+  conversion_event,
   channel,
   attributed_conversions as total_conversions,
-  total_revenue_usd,
+  total_value_usd,
   total_credit,
   avg_order_value_usd as avg_order_value,
   -- Calculate shares as derived fields in Looker Studio instead
 FROM `marketingdataanalyst.attribution_models.cross_channel_comparison`
-ORDER BY model, total_revenue_usd DESC
+ORDER BY model, conversion_event, total_value_usd DESC
 ```
 
 ### C.3 Top Converting Paths (already materialized as path_analysis)
@@ -815,7 +818,7 @@ SELECT
   model,
   channel,
   SUM(attributed_credit) as daily_credit,
-  SUM(attributed_revenue) as daily_revenue
+  SUM(attributed_value_usd) as daily_revenue
 FROM `marketingdataanalyst.attribution_models.attribution_mart`
 GROUP BY 1, 2, 3
 ORDER BY 1, 2
@@ -827,8 +830,8 @@ ORDER BY 1, 2
 SELECT
   path_length,
   COUNT(DISTINCT conversion_id) as conversions,
-  SUM(purchase_revenue_in_usd) as total_revenue,
-  ROUND(AVG(purchase_revenue_in_usd), 2) as avg_revenue
+  SUM(conversion_value_usd) as total_revenue,
+  ROUND(AVG(conversion_value_usd), 2) as avg_revenue
 FROM `marketingdataanalyst.attribution_models.attribution_mart`
 WHERE model = 'last_click'  -- pick one model; path_length is the same for all
 GROUP BY path_length

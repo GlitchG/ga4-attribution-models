@@ -204,15 +204,36 @@ The pipeline has been tested end-to-end on `bigquery-public-data.ga4_obfuscated_
 - Revenue conservation: attributed total = raw total (±$5 rounding tolerance)
 - 0 unexpected channels (all map to the 17-channel taxonomy)
 
-**Dataset characteristics (public sample, 2020-11-01 to 2020-12-20):**
-- 63,578 conversion journeys across 3 event types
-- 71% of users have multiple conversions
-- 54% single-session paths, 17.5% two-session, 28.5% 3+ sessions
-- Average lookback: 3.5 days; max: 30 days
-- Channel distribution: Direct 87%, Organic Search 12.5%, Referral 8.9%
+**Dataset characteristics (public sample, 2020-11-01 to 2020-12-19, verified run):**
+
+| Metric | Value |
+|---|---|
+| Conversion events | 63,578 (purchase: 4,089 / begin_checkout: 23,879 / add_to_cart: 35,610) |
+| Total revenue (purchase) | $280,986 |
+| Multi-conversion users | 71.1% (8,039 / 11,305) |
+| Single-session paths | 59.6% (37,920) |
+| Two-session paths | 17.2% (10,933) |
+| Three-to-five session paths | 19.3% (12,294) |
+| Six+ session paths | 3.8% (2,431) |
+| Average lookback | 1.3 days |
+| Max lookback | 30 days (purchase), 14 days (begin_checkout), 7 days (add_to_cart) |
+| Top channels | Direct 87,289 / Referral 16,052 / Organic Search 13,545 / Unknown 3,431 |
+
+**attribution_mart row counts by model:**
+
+| Model | Rows |
+|---|---|
+| linear | 120,957 |
+| time_decay | 120,957 |
+| u_shape | 120,957 |
+| position_weighted | 120,957 |
+| data_driven_bqml | 77,804 |
+| first_click | 63,578 |
+| last_click | 63,578 |
+| last_non_direct_click | 63,578 |
 
 **Known public sample quirks:**
-- Source/medium values are anonymised (`<Other>`, `(data deleted)`) — mapped to `Direct`
+- Source/medium values are anonymised (`<Other>`, `(data deleted)`) — mapped to `Unknown` channel
 - No consent mode v2 fields (2020 dataset predates them)
 - No `session_traffic_source_last_click` (use `event_params` mode)
 
