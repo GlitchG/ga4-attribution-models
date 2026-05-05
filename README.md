@@ -90,6 +90,8 @@ All tables are created in the `attribution_models` dataset (configurable in `wor
 
 To use with your own GA4 export: change `vars.ga4_project` and `vars.ga4_dataset` in `workflow_settings.yaml` — no SQL edits needed.
 
+**Public dataset date range:** The sample tables cover **2020-11-01 to 2020-12-20**. The default `start_date`/`end_date` vars are set accordingly. If you change to your own GA4 export, update these dates to match your data.
+
 #### Legacy SQL (standalone queries)
 
 The original standalone `.sql` files remain in the root folders for reference and quick copy-paste:
