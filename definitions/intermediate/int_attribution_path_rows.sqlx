@@ -32,7 +32,7 @@ SELECT
   j.tax_value,
   j.refund_value,
   j.unique_items,
-  j.coupon,
+  -- j.coupon,  -- not available in public dataset; uncomment when migrating to private GA4 export
   j.items,
   j.event_value,
   j.event_currency,

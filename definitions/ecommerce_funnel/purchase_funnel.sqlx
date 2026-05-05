@@ -6,15 +6,7 @@ config {
   description: "GA4 ecommerce funnel from session to purchase with conversion rates and revenue at each stage."
 }
 
-WITH sessions AS (
-  SELECT
-    user_pseudo_id,
-    session_id,
-    session_start,
-    channel
-  FROM ${ref("staging", "stg_ga4_sessions")}
-),
-funnel_events AS (
+WITH funnel_events AS (
   SELECT
     user_pseudo_id,
     conversion_session_id,
