@@ -3,11 +3,7 @@ config {
   schema: "attribution_models",
   name: "attribution_mart",
   tags: ["mart", "daily"],
-  description: "Unified attribution mart combining all model outputs with full ecommerce data for cross-model comparison and reporting. Eight models total.",
-  bigquery: {
-    partitionBy: "DATE(conversion_ts)",
-    clusterBy: ["model", "channel"]
-  }
+  description: "Unified attribution mart combining all model outputs with full ecommerce data for cross-model comparison and reporting. Eight models total."
 }
 
 -- Union all attribution models into a single table for reporting.

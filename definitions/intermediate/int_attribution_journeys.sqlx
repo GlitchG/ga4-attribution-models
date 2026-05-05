@@ -4,10 +4,6 @@ config {
   name: "int_attribution_journeys",
   tags: ["intermediate", "daily"],
   description: "Session-to-conversion journeys: one row per conversion, zero duplicates, ordered path arrays. Includes full ecommerce payload and context.",
-  bigquery: {
-    partitionBy: "DATE(conversion_ts)",
-    clusterBy: ["user_pseudo_id", "conversion_event"]
-  },
   assertions: {
     uniqueKey: ["user_pseudo_id", "conversion_ts", "conversion_event"],
     nonNull: ["user_pseudo_id", "conversion_ts", "path_length"],

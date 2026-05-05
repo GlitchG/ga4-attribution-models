@@ -4,10 +4,6 @@ config {
   name: "stg_ga4_sessions",
   tags: ["staging"],
   description: "Deduplicated session-level extraction from GA4 events with GA4-UI-style source/medium resolution.",
-  bigquery: {
-    partitionBy: "DATE(session_start)",
-    clusterBy: ["user_pseudo_id", "channel"]
-  },
   assertions: {
     uniqueKey: ["user_pseudo_id", "session_id"],
     nonNull: ["user_pseudo_id", "session_id", "session_start", "channel"],

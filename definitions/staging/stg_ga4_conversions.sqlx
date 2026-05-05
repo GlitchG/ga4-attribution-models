@@ -4,10 +4,6 @@ config {
   name: "stg_ga4_conversions",
   tags: ["staging"],
   description: "Deduplicated conversion events from GA4 with full ecommerce payload.",
-  bigquery: {
-    partitionBy: "DATE(conversion_ts)",
-    clusterBy: ["user_pseudo_id", "conversion_event"]
-  },
   assertions: {
     uniqueKey: ["user_pseudo_id", "conversion_ts", "conversion_event", "transaction_id"],
     nonNull: ["user_pseudo_id", "conversion_ts", "conversion_event"],
