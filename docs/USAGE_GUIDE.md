@@ -1,1039 +1,595 @@
-# GA4 Attribution Models — Usage Guide
+# GA4 Attribution Models — Usage Guide (v2.0)
 
-A comprehensive guide for marketing analysts and data engineers who want to set up, run, and extend the GA4 Attribution Models Dataform pipeline.
-
-**Version**: 2.0.0  
-**Last updated**: 2026-05-05  
-**Target audience**: Marketing analysts, data engineers, BI developers with basic command-line experience  
-**License**: MIT
+**Repository:** [github.com/GlitchG/ga4-attribution-models](https://github.com/GlitchG/ga4-attribution-models)  
+**License:** MIT  
+**Dataform version:** 3.x  
+**Last updated:** 2026-05-05
 
 ---
 
 ## Table of Contents
 
-1. [Overview](#1-overview)
-2. [Prerequisites](#2-prerequisites)
-3. [Step-by-Step Setup](#3-step-by-step-setup)
+1. [Quick Start](#1-quick-start)
+2. [Architecture Overview](#2-architecture-overview)
+3. [Configuration](#3-configuration)
 4. [Running the Pipeline](#4-running-the-pipeline)
 5. [Understanding the Output](#5-understanding-the-output)
-6. [Publishing to BigQuery](#6-publishing-to-bigquery)
-7. [Common Issues & Troubleshooting FAQ](#7-common-issues--troubleshooting-faq)
-8. [Next Steps](#8-next-steps)
+6. [Attribution Models Explained](#6-attribution-models-explained)
+7. [Troubleshooting](#7-troubleshooting)
+8. [Advanced Topics](#8-advanced-topics)
+9. [Validation & Testing](#9-validation--testing)
+10. [Performance & Cost](#10-performance--cost)
+11. [Migration from v1.x](#11-migration-from-v1x)
 
 ---
 
-## 1. Overview
+## 1. Quick Start
 
-### What This Project Does
+### Prerequisites
 
-The GA4 Attribution Models project applies **eight distinct attribution models** to Google Analytics 4 session-to-conversion journeys, running entirely within Google BigQuery via Dataform. It uses Google's public GA4 sample dataset by default, so you can explore multi-touch attribution with zero data engineering — only a free Google Cloud Platform (GCP) account is required.
+- A Google Cloud project with BigQuery enabled
+- A GA4 BigQuery export (public or private)
+- [Dataform CLI](https://www.npmjs.com/package/@dataform/cli) installed (`npm install -g @dataform/cli`)
+- BigQuery permissions: `bigquery.dataEditor`, `bigquery.jobUser`
 
-### The Eight Models
-
-| Model | Strategy | Best For |
-|---|---|---|
-| **First Click** | 100% credit to the first session | Understanding top-of-funnel acquisition channels |
-| **Last Click** | 100% credit to the last session before conversion | Default reporting; identifying closing channels |
-| **Last Non-Direct Click** | 100% credit to the last non-Direct session; falls back to Direct if the entire path is Direct | Removing brand/direct bias from last-click analysis |
-| **Linear** | Equal credit split across all sessions | A balanced, baseline view |
-| **Time Decay** | Exponential decay with a 7-day half-life; closer sessions get more credit | Emphasising recency while still valuing earlier touchpoints |
-| **U-Shaped** | 40% first + 40% last + 20% middle (split equally) | Valuing both discovery and closing channels |
-| **Position Weighted** | Calibrated heuristic: 50% first, 30% last, 20% middle (split equally) | A stronger emphasis on acquisition than the U-shaped model |
-| **Data-Driven (BQML)** | Feature-ablation attribution via BigQuery ML logistic regression; measures the marginal contribution of each channel by predicting with and without it | Statistically grounded, channel-incrementality measurement |
-
-### Architecture
-
-The pipeline follows a classic ELT (Extract, Load, Transform) pattern organised into four layers:
-
-```
-        ┌──────────────────────┐
-        │   GA4 Events (public) │
-        │   bigquery-public-data │
-        └──────────┬───────────┘
-                   │
-        ┌──────────▼───────────┐
-        │   STAGING             │
-        │  stg_ga4_sessions     │  ~207K deduplicated sessions
-        │  stg_ga4_conversions  │  ~89K  deduplicated conversions
-        └──────────┬───────────┘
-                   │
-        ┌──────────▼───────────┐
-        │   INTERMEDIATE        │
-        │  int_attribution_     │  ~4.1K conversion journeys (one row per conversion)
-        │  journeys             │  with ordered path arrays
-        │  int_attribution_     │  ~10.3K unnested path rows (view)
-        │  path_rows            │
-        └──────────┬───────────┘
-                   │
-        ┌──────────▼───────────┐
-        │   ATTRIBUTION MODELS  │
-        │  7 rule-based +       │
-        │  1 BQML model         │  Each outputs: user, conversion, channel,
-        │  attribution_mart     │  attributed_credit, attributed_revenue
-        │  cross_channel_       │  ~58K rows unioning all 8 models
-        │  comparison           │
-        └──────────┬───────────┘
-                   │
-        ┌──────────▼───────────┐
-        │   DASHBOARD (views)   │
-        │  attribution_         │  Ready for Looker Studio / Tableau
-        │  dashboard            │
-        │  funnel_dashboard     │
-        │  paths_dashboard      │
-        └──────────────────────┘
-```
-
-**Key design decisions:**
-
-- **Session-based**, not event-based. Each touchpoint is a GA4 session, extracted using the GA4-UI-style "first non-auto event" rule for source/medium resolution. This aligns with the GA4 UI Session Acquisition report and reduces drift by 5–15% on production data compared to simpler extraction methods.
-- **30-day lookback window** before each conversion (configurable).
-- **Deduplication at every layer**: sessions, conversions, and path rows are all deduplicated with `ROW_NUMBER()` window functions.
-- **Full ecommerce payload** preserved: `purchase_revenue`, `purchase_revenue_in_usd`, `transaction_id`, `items`, shipping, tax, and device/geo context.
-- **Eight-channel normalisation** via a single source-of-truth function in `includes/channel_grouping.js`.
-- **Multi-conversion support**: repeat purchasers get separate, independently ordered journeys.
-
-### Project File Structure
-
-```
-ga4-attribution-models/
-├── workflow_settings.yaml          # Central configuration (project, dates, dataset)
-├── .df-credentials.json            # Git-ignored BigQuery credentials
-├── definitions/
-│   ├── sources/
-│   │   └── ga4_events.sqlx         # External GA4 table declaration
-│   ├── staging/
-│   │   ├── stg_ga4_sessions.sqlx   # Deduplicated sessions with source/medium
-│   │   └── stg_ga4_conversions.sqlx# Deduplicated conversions with ecommerce data
-│   ├── intermediate/
-│   │   ├── int_attribution_journeys.sqlx  # One row per conversion, path array
-│   │   └── int_attribution_path_rows.sqlx # Unnested paths for model consumption
-│   ├── attribution_models/
-│   │   ├── attr_first_click.sqlx
-│   │   ├── attr_last_click.sqlx
-│   │   ├── attr_last_non_direct_click.sqlx
-│   │   ├── attr_linear.sqlx
-│   │   ├── attr_time_decay.sqlx
-│   │   ├── attr_u_shape.sqlx
-│   │   ├── attr_position_weighted.sqlx
-│   │   ├── attr_data_driven_bqml.sqlx     # BQML feature-ablation predictions
-│   │   ├── attribution_mart.sqlx          # UNION ALL of all 8 models
-│   │   └── cross_channel_comparison.sqlx  # Channel-level aggregation
-│   ├── ecommerce_funnel/
-│   │   ├── purchase_funnel.sqlx
-│   │   └── cart_abandonment.sqlx
-│   ├── user_journey/
-│   │   └── path_analysis.sqlx
-│   ├── dashboard/
-│   │   ├── attribution_dashboard.sqlx
-│   │   ├── funnel_dashboard.sqlx
-│   │   └── paths_dashboard.sqlx
-│   └── ml/
-│       └── attr_data_driven_train.sqlx    # BQML logistic regression training
-├── includes/
-│   ├── channel_grouping.js        # DRY 8-channel CASE logic
-│   ├── source_resolution.js       # DRY GA4 UI-style source resolution
-│   └── constants.js               # Safe defaults for workflow variables
-├── README.md
-├── CHANGELOG.md
-└── .gitignore
-```
-
----
-
-## 2. Prerequisites
-
-### Required Accounts & Access
-
-1. **Google Cloud Platform (GCP) account** — A free-tier account is sufficient. You need BigQuery and the ability to create service accounts. Sign up at [cloud.google.com](https://cloud.google.com).
-
-2. **BigQuery enabled** — BigQuery is enabled by default on new GCP projects. Verify in the GCP Console under **APIs & Services > Enabled APIs & Services** that the BigQuery API is listed.
-
-3. **A dedicated GCP project** — We recommend creating a project specifically for this pipeline (e.g., `marketing-attribution`). Your project ID appears in `workflow_settings.yaml` and `.df-credentials.json`.
-
-### Service Account
-
-Create a service account with the following BigQuery roles:
-
-- **BigQuery Data Editor** (`roles/bigquery.dataEditor`) — Required to create tables, views, and models in your project.
-- **BigQuery User** (`roles/bigquery.user`) — Required to run queries and jobs.
-
-Steps to create the service account:
-
-1. In the GCP Console, navigate to **IAM & Admin > Service Accounts**.
-2. Click **Create Service Account**.
-3. Give it a name (e.g., `dataform-runner`) and description.
-4. Grant the two roles: **BigQuery Data Editor** and **BigQuery User**.
-5. Click **Done**, then click on the new service account, go to the **Keys** tab, and **Add Key > Create New Key**.
-6. Choose **JSON** format and download the key file.
-
-**Important**: Keep this key file secure. It will be embedded in your `.df-credentials.json` file (which is git-ignored). Never commit it to version control.
-
-### Software
-
-| Tool | Minimum Version | Installation |
-|---|---|---|
-| **Node.js** | 18.x or later | [nodejs.org](https://nodejs.org) or `nvm install 18` |
-| **npm** | 9.x or later | Bundled with Node.js |
-| **Dataform CLI** | 3.0.20+ | `npm install -g @dataform/cli` |
-| **Git** | Any recent version | [git-scm.com](https://git-scm.com) |
-
-Verify your installation:
+### One-minute setup
 
 ```bash
-node --version    # Should be v18.x or later
-npm --version     # Should be 9.x or later
-dataform --version  # Should show v3.x
-git --version
-```
-
-### BigQuery Dataset for the Public Sample
-
-The public GA4 dataset (`bigquery-public-data.ga4_obfuscated_sample_ecommerce`) is a US multi-region dataset. Your GCP project's BigQuery queries must run in a **US** location to read from it without cross-region charges. The default `location: US` in `workflow_settings.yaml` handles this.
-
----
-
-## 3. Step-by-Step Setup
-
-### 3.1 Clone the Repository
-
-```bash
+# Clone the repository
 git clone https://github.com/GlitchG/ga4-attribution-models.git
 cd ga4-attribution-models
+
+# Install dependencies
+npm install
+
+# Create credentials (service account with BigQuery access)
+gcloud auth application-default login   # or use a service account JSON
+echo '{"projectId":"YOUR_PROJECT","location":"US","credentials":"BASE64_ENCODED_JSON"}' > .df-credentials.json
+
+# Configure your GA4 dataset
+# Edit workflow_settings.yaml:
+#   vars:
+#     ga4_project: "your-project"
+#     ga4_dataset: "analytics_xxx"
+#     start_date: "20240101"
+#     end_date: "20240131"
+
+# Compile and run
+dataform compile
+dataform run
 ```
 
-### 3.2 Create the Credentials File
+### Public sample (free, no setup)
 
-Create `.df-credentials.json` in the project root. This file is git-ignored (listed in `.gitignore`) so it won't be accidentally committed.
-
-The format for Dataform CLI v3 is:
-
-```json
-{
-  "projectId": "YOUR_GCP_PROJECT_ID",
-  "location": "US",
-  "credentials": "<escaped service account JSON string>"
-}
-```
-
-**How to create the `credentials` value:**
-
-The `credentials` field must be the **entire content of your service account JSON key file**, properly escaped as a single-line string. Here's the easiest method:
+The repo defaults to `bigquery-public-data.ga4_obfuscated_sample_ecommerce`. Just run:
 
 ```bash
-# From your project root, read the key file and write the credentials file in one command:
-node -e "
-const sa = JSON.stringify(JSON.stringify(require('fs').readFileSync('/path/to/your-service-account-key.json', 'utf8')));
-console.log(JSON.stringify({
-  projectId: 'YOUR_GCP_PROJECT_ID',
-  location: 'US',
-  credentials: JSON.parse(sa)
-}, null, 2));
-" > .df-credentials.json
+dataform compile
+dataform run --default-database=YOUR_PROJECT
 ```
 
-Or manually, by copying the entire JSON content of your service account key and replacing all newlines with `\n` and all double-quotes with `\"`. Then wrap it in quotes as the value of the `credentials` field.
+---
 
-**Example structure** (with truncated key):
+## 2. Architecture Overview
 
-```json
-{
-  "projectId": "my-attribution-project",
-  "location": "US",
-  "credentials": "{\n  \"type\": \"service_account\",\n  \"project_id\": \"my-attribution-project\",\n  \"private_key_id\": \"abc123...\",\n  \"private_key\": \"-----BEGIN PRIVATE KEY-----\\nMIIEv...\\n-----END PRIVATE KEY-----\\n\",\n  \"client_email\": \"dataform-runner@my-attribution-project.iam.gserviceaccount.com\"\n}"
-}
+**Session-based, not event-based.** The pipeline:
+
+1. **Extracts sessions** using configurable source extraction mode (`event_params`, `session_stslc`, `collected`, or `auto`)
+2. **Extracts all configured conversion events** with full ecommerce payload
+3. **Builds journeys** — for each conversion, finds all sessions within the lookback window
+4. **Unnests paths** into row-level format for attribution calculation
+5. **Runs 8 attribution models** in parallel
+6. **Unifies results** into a single mart table with cross-model comparison
+
+```
+GA4 events_* → stg_ga4_sessions + stg_ga4_conversions
+                    ↓
+        int_attribution_journeys (path building)
+                    ↓
+        int_attribution_path_rows (row-level unnest)
+                    ↓
+    ┌────────────────────────────────────────────────┐
+    │  first_click / last_click / last_non_direct_click              │
+    │  linear / time_decay / u_shape / position_weighted             │
+    │  data_driven_bqml (ML model)                                   │
+    └────────────────────────────────────────────────┘
+                    ↓
+        attribution_mart + cross_channel_comparison
 ```
 
-**Testing credentials** — after creating the file, verify that Dataform can authenticate:
+### Key design decisions
 
-```bash
-dataform init-creds .df-credentials.json
+| Decision | Rationale |
+|---|---|
+| Session-based | GA4's session concept aligns with marketing touchpoints; event-level is too granular |
+| Multi-conversion | A single user can convert multiple times; each conversion gets its own journey |
+| 30-day lookback | Configurable; default matches GA4's default attribution window |
+| Auto source resolution | Works across GA4 export versions without schema changes |
+
+---
+
+## 3. Configuration
+
+### 3.1 Conversion events (`includes/conversion_config.js`)
+
+```javascript
+const CONVERSION_EVENTS = [
+  {
+    event: 'purchase',
+    value_mode: 'revenue',   // Uses purchase_revenue_in_usd
+    description: 'Completed purchase'
+  },
+  {
+    event: 'begin_checkout',
+    value_mode: 'count',     // No revenue; counts conversions only
+    description: 'Checkout started'
+  },
+  {
+    event: 'add_to_cart',
+    value_mode: 'count',
+    description: 'Item added to cart'
+  }
+];
 ```
 
-If successful, you'll see a confirmation message. If not, double-check that the `credentials` field is properly escaped JSON (not the raw JSON object).
+**Value modes:**
+- `revenue` — Uses `purchase_revenue_in_usd` (or event-specific revenue field)
+- `fixed` — Assigns a fixed value per conversion (configure in `getValueExpr()`)
+- `count` — No monetary value; `attributed_value_usd` will be NULL
 
-### 3.3 Configure `workflow_settings.yaml`
+**To add a new conversion:**
+1. Append to `CONVERSION_EVENTS` array
+2. Choose `value_mode`
+3. Recompile — no SQL changes needed
 
-Edit the file to match your GCP environment:
+### 3.2 Channel grouping (`includes/channel_grouping.js`)
+
+17-channel taxonomy:
+
+1. Cross-network
+2. Paid Search Brand
+3. Paid Search Non-Brand
+4. Paid Shopping
+5. Paid Social
+6. Paid Video
+7. Display
+8. Organic Search
+9. Organic Shopping
+10. Organic Social
+11. Organic Video
+12. Email
+13. SMS
+14. Affiliate
+15. Audio
+16. Mobile Push
+17. Referral
+18. Direct
+
+**Brand vs Non-Brand split:** Edit `BRAND_TERMS_REGEX` in `includes/constants.js`:
+
+```javascript
+const BRAND_TERMS_REGEX = "(yourbrand|yourcompany|yourproduct)";
+```
+
+This regex is used in the `channelGrouping()` function. If `source` matches (case-insensitive), the channel becomes "Paid Search Brand"; otherwise "Paid Search Non-Brand".
+
+### 3.3 Source extraction mode (`workflow_settings.yaml`)
 
 ```yaml
-dataformCoreVersion: "3.0.20"
-defaultProject: YOUR_GCP_PROJECT_ID        # ← Change this
-defaultLocation: US                          # Must be US for the public dataset
-defaultDataset: attribution_models           # Output dataset for all tables
-defaultAssertionDataset: attribution_assertions  # Dataset for data quality assertions
 vars:
-  start_date: "20201101"                     # Public dataset range
-  end_date: "20201220"                       # Public dataset range
-  ga4_project: "bigquery-public-data"        # Source GA4 project
-  ga4_dataset: "ga4_obfuscated_sample_ecommerce"  # Source GA4 dataset
-  lookback_days: "30"                        # Attribution window in days
+  source_extraction_mode: "event_params"   # Options: auto, event_params, session_stslc, collected
 ```
 
-**Key configuration fields:**
-
-| Variable | Purpose | Default |
+| Mode | Use when | Description |
 |---|---|---|
-| `defaultProject` | Your GCP project where output tables are created | Must be changed |
-| `defaultLocation` | BigQuery region for queries and storage | `US` |
-| `defaultDataset` | Schema/dataset name for output tables | `attribution_models` |
-| `start_date` / `end_date` | Date range filter (`_TABLE_SUFFIX`) | `20201101` – `20201220` |
-| `ga4_project` / `ga4_dataset` | Source GA4 data location | Public dataset |
-| `lookback_days` | How far before a conversion to include sessions | `30` |
+| `event_params` (default) | Any export | Extracts source/medium from event-level `event_params`. Works on all GA4 exports. |
+| `session_stslc` | Post-2024-07 exports | Uses `session_traffic_source_last_click` (GA4 UI-native logic). |
+| `collected` | Post-2023-06 exports | Uses `collected_traffic_source` (manual override values). |
+| `auto` | Post-2024-07 exports | `COALESCE(session_stslc, collected, event_params)` — falls through gracefully. |
 
-**Important**: The `defaultProject` **must match** the `projectId` in your `.df-credentials.json`. The source GA4 dataset can be in a different project (the public dataset lives in `bigquery-public-data`).
+**Important:** The public sample dataset (`bigquery-public-data.ga4_obfuscated_sample_ecommerce`) is from 2020 and does NOT have `session_traffic_source_last_click` or `collected_traffic_source`. Use `event_params` (default) for this dataset.
 
-### 3.4 Install Dependencies
+### 3.4 Lookback window (`workflow_settings.yaml`)
 
-The project has no `package.json` — Dataform CLI is your only dependency. Install it globally:
-
-```bash
-npm install -g @dataform/cli@^3.0.20
+```yaml
+vars:
+  lookback_days: "30"
 ```
 
-Verify with:
+The lookback is **exact**: the pipeline filters sessions where `session_start >= conversion_ts - lookback_days`. Additionally, `_TABLE_SUFFIX` is extended by `lookback_days` to ensure all relevant partitions are scanned.
 
-```bash
-dataform --version
-# Should output: 3.x.x
+### 3.5 Privacy / consent mode v2 (`workflow_settings.yaml`)
+
+```yaml
+vars:
+  exclude_modeled_events: "true"   # Set to "true" to exclude modeled events
 ```
 
-### 3.5 Compile to Verify
+When enabled, sessions with `privacy_info.uses_transient_token = 'Yes'` are excluded. All privacy fields are passed through to staging and attribution tables for auditability.
 
-Before running the full pipeline, compile the project to check for syntax errors and validate the dependency graph:
-
-```bash
-dataform compile --default-database=YOUR_GCP_PROJECT_ID
-```
-
-You should see output listing each compiled action (tables, views, operations, assertions) with a green checkmark. If compilation fails, see the [Common Issues](#7-common-issues--troubleshooting-faq) section.
+**Note:** The public sample dataset (2020) does not contain consent mode v2 fields. These will be NULL.
 
 ---
 
 ## 4. Running the Pipeline
 
-### 4.1 First Run (Full Refresh)
-
-For the first execution, use `--full-refresh` to create all tables from scratch:
+### Full run (all models)
 
 ```bash
-dataform run --default-database=YOUR_GCP_PROJECT_ID --full-refresh
+dataform run --default-database=your-project
 ```
 
-**What happens during a full run:**
-
-1. **Staging** (`stg_ga4_sessions`, `stg_ga4_conversions`) — Extracts sessions and conversions from the public GA4 dataset with deduplication.
-2. **Intermediate** (`int_attribution_journeys`, `int_attribution_path_rows`) — Builds conversion journeys with ordered path arrays, joined within the 30-day lookback window.
-3. **Attribution Models** — Each of the 8 models runs independently, reading from the intermediate layer.
-4. **Mart** (`attribution_mart`) — Unions all 8 model outputs into a single table.
-5. **Cross-Channel Comparison** — Aggregates channel-level metrics across all models.
-6. **Dashboard Views** — Creates three dashboard-ready views.
-7. **BQML Training** — Trains the logistic regression model (`ml/attr_data_driven_train` operation), then runs predictions (`attr_data_driven_bqml`).
-
-**Expected runtime**: 5–15 minutes on the public dataset (depends on BigQuery slot availability). The BQML training step adds 1–3 minutes.
-
-**Expected output row counts** (public dataset, 2020-11-01 to 2020-12-20):
-
-| Table | Approximate Rows |
-|---|---|
-| `stg_ga4_sessions` | 207,000 |
-| `stg_ga4_conversions` | 89,000 |
-| `int_attribution_journeys` | 4,100 |
-| `int_attribution_path_rows` | 10,300 |
-| `attribution_mart` | 58,000 (all 8 models combined) |
-| `attr_data_driven_bqml` | 4,900 (may produce 0 rows if training data is too sparse) |
-
-### 4.2 Selective Runs with Tags
-
-Once the full pipeline has been built, you can run subsets of the DAG using tags:
+### Run specific tags
 
 ```bash
-# Run only staging tables
-dataform run --default-database=YOUR_GCP_PROJECT_ID --tags staging
+# Staging only
+dataform run --tags=staging
 
-# Run only attribution models
-dataform run --default-database=YOUR_GCP_PROJECT_ID --tags attribution
+# Attribution models only (skip ML)
+dataform run --tags=attribution,model
 
-# Run only models (not staging or intermediate)
-dataform run --default-database=YOUR_GCP_PROJECT_ID --tags model
+# BQML training only
+dataform run --tags=ml
 
-# Run only dashboard views
-dataform run --default-database=YOUR_GCP_PROJECT_ID --tags dashboard
-
-# Run the ML pipeline (training + predictions)
-dataform run --default-database=YOUR_GCP_PROJECT_ID --tags ml
-
-# Run the daily refresh subset (staging, intermediate, mart, dashboards)
-dataform run --default-database=YOUR_GCP_PROJECT_ID --tags daily
+# Dashboard views only
+dataform run --tags=dashboard
 ```
 
-**Available tags:**
-
-| Tag | What It Covers |
-|---|---|
-| `staging` | `stg_ga4_sessions`, `stg_ga4_conversions` |
-| `intermediate` | `int_attribution_journeys`, `int_attribution_path_rows` |
-| `attribution` | All attribution model tables + BQML predictions |
-| `model` | Only the rule-based model tables (excludes BQML) |
-| `ml` | BQML training + predictions |
-| `mart` | `attribution_mart`, `cross_channel_comparison` |
-| `dashboard` | `attribution_dashboard`, `funnel_dashboard`, `paths_dashboard` |
-| `funnel` | `purchase_funnel`, `cart_abandonment` |
-| `journey` | `path_analysis` |
-| `daily` | `staging` + `intermediate` + `mart` + `dashboard` (intended for incremental daily refreshes) |
-
-### 4.3 Running Individual Actions
-
-You can run a single table or view by its fully qualified name:
+### Full refresh (rebuild everything)
 
 ```bash
-dataform run --default-database=YOUR_GCP_PROJECT_ID --actions staging.stg_ga4_sessions
-dataform run --default-database=YOUR_GCP_PROJECT_ID --actions attribution_models.attr_first_click
+dataform run --full-refresh
 ```
 
-Dataform automatically includes all upstream dependencies when you specify an action. To run an action without dependencies:
+### Schedule in production
+
+Use Dataform's built-in scheduling (in the Dataform UI) or Cloud Scheduler:
 
 ```bash
-dataform run --default-database=YOUR_GCP_PROJECT_ID --actions attribution_models.attr_first_click --no-dependencies
+# Example: daily at 06:00 UTC
+gcloud scheduler jobs create http daily-attribution \
+  --schedule="0 6 * * *" \
+  --uri="https://dataform.googleapis.com/v1beta1/projects/YOUR_PROJECT/locations/us/repositories/ga4-attribution-models/workflowInvocations" \
+  --http-method=POST \
+  --message-body='{"compilationResult":"projects/YOUR_PROJECT/locations/us/repositories/ga4-attribution-models/compilationResults/latest"}'
 ```
-
-### 4.4 Viewing the Dependency Graph
-
-To visualise the pipeline DAG:
-
-```bash
-dataform compile --default-database=YOUR_GCP_PROJECT_ID --json > dag.json
-```
-
-This produces a JSON representation of every action and its dependencies, which you can use with visualisation tools or simply inspect to understand the pipeline flow.
-
-### 4.5 Running Assertions
-
-Assertions validate data quality at each layer. They run automatically as part of the pipeline. To run only assertions:
-
-```bash
-dataform run --default-database=YOUR_GCP_PROJECT_ID --tags assertions
-```
-
-Assertions check:
-- **Unique keys**: no duplicate user-session or user-conversion pairs
-- **Non-null fields**: critical columns are not null
-- **Row conditions**: revenue >= 0, path_length >= 1, timestamps are valid
-
-Failed assertions appear in the run output with red ✗ markers. View assertion results in the `attribution_assertions` dataset in BigQuery.
 
 ---
 
 ## 5. Understanding the Output
 
-All output tables and views are created in your `defaultDataset` (usually `attribution_models`), with sub-datasets for each pipeline layer. Here's a detailed description of each key table.
+### 5.1 `attribution_mart`
 
-### 5.1 Staging Layer
+The unified output table. One row per touchpoint per conversion per model.
 
-#### `staging.stg_ga4_sessions`
-
-One row per unique session. Extracted from GA4 events using the **first non-auto event** rule (same logic the GA4 UI uses for Session Acquisition). Sessions are deduplicated by `(user_pseudo_id, session_id)`.
-
-**Key columns:**
-
-| Column | Type | Description |
-|---|---|---|
-| `user_pseudo_id` | STRING | GA4 user identifier (cookie-level) |
-| `session_id` | INT64 | GA4 session identifier |
-| `session_start` | TIMESTAMP | Session start time |
-| `source` | STRING | Traffic source (e.g., `google`, `bing`, `(direct)`) |
-| `medium` | STRING | Traffic medium (e.g., `organic`, `cpc`, `referral`) |
-| `campaign` | STRING | UTM campaign parameter |
-| `channel` | STRING | Normalised channel (one of 8 values) |
-
-**The eight channel values**: `Paid Search`, `Organic Search`, `Social`, `Email`, `Display`, `Referral`, `Affiliate`, `Direct`. Any source/medium combination not matching these rules is stored as `source / medium` for transparency.
-
-#### `staging.stg_ga4_conversions`
-
-One row per conversion event (purchase, begin_checkout, add_to_cart, add_payment_info, add_shipping_info). Deduplicated by `(user_pseudo_id, event_timestamp, event_name, transaction_id)`.
-
-**Key columns:**
-
-| Column | Type | Description |
-|---|---|---|
-| `user_pseudo_id` | STRING | GA4 user identifier |
-| `conversion_ts` | TIMESTAMP | When the conversion occurred |
-| `conversion_event` | STRING | Event type: `purchase`, `begin_checkout`, etc. |
-| `transaction_id` | STRING | Ecommerce transaction ID |
-| `purchase_revenue` | FLOAT64 | Revenue in local currency |
-| `purchase_revenue_in_usd` | FLOAT64 | Revenue in USD |
-| `total_item_quantity` | INT64 | Total items in the transaction |
-| `shipping_value` | FLOAT64 | Shipping cost |
-| `tax_value` | FLOAT64 | Tax amount |
-| `device_category` | STRING | `desktop`, `mobile`, `tablet` |
-| `country`, `region`, `city` | STRING | Geographic context |
-
-### 5.2 Intermediate Layer
-
-#### `intermediate.int_attribution_journeys`
-
-The heart of the pipeline. **One row per purchase conversion** with an ordered array of all sessions that occurred within the lookback window. Multi-conversion users get separate rows with independent journeys.
-
-**Key columns:**
-
-| Column | Type | Description |
-|---|---|---|
-| `user_pseudo_id` | STRING | GA4 user |
-| `conversion_id` | STRING | Globally unique conversion ID (`user_pseudo_id-seq`) |
-| `conversion_ts` | TIMESTAMP | Conversion timestamp |
-| `path` | ARRAY\<STRUCT\> | Ordered array of session touchpoints |
-| `path_length` | INT64 | Number of sessions in the journey |
-| `purchase_revenue_in_usd` | FLOAT64 | Total revenue for this conversion |
-
-Each element in the `path` array contains: `session_start`, `source`, `medium`, `campaign`, `content`, `term`, `channel`, `hours_before_conversion`.
-
-#### `intermediate.int_attribution_path_rows`
-
-A **view** that unnests the journey paths into one row per session per conversion. This is the primary input for all attribution models. Contains ascending and descending position numbers (`session_position_asc`, `session_position_desc`) for easy first/last session identification.
-
-### 5.3 Attribution Model Tables
-
-Each model table (e.g., `attribution_models.attr_first_click`, `attribution_models.attr_time_decay`) has identical output schema:
-
-| Column | Type | Description |
-|---|---|---|
-| `user_pseudo_id` | STRING | GA4 user |
-| `conversion_id` | STRING | Unique conversion identifier |
-| `conversion_ts` | TIMESTAMP | Conversion timestamp |
-| `transaction_id` | STRING | Ecommerce transaction ID |
-| `purchase_revenue` | FLOAT64 | Revenue in local currency |
-| `purchase_revenue_in_usd` | FLOAT64 | Revenue in USD |
-| `path_length` | INT64 | Journey length |
-| `source` | STRING | Traffic source of this touchpoint |
-| `medium` | STRING | Traffic medium |
-| `campaign` | STRING | UTM campaign |
-| `channel` | STRING | Normalised channel |
-| `model` | STRING | Model identifier (e.g., `'first_click'`) |
-| `attributed_credit` | FLOAT64 | Share of conversion credit (sums to 1.0 per conversion) |
-| `attributed_revenue` | FLOAT64 | Attributed revenue in USD |
-| `attributed_revenue_local` | FLOAT64 | Attributed revenue in local currency |
-
-#### `attribution_models.attribution_mart`
-
-A **union of all 8 model outputs** into a single table. This is your primary table for reporting, BI tools, and cross-model comparison. Each row is one touchpoint within one conversion under one model.
-
-**Row count**: ~58,000 rows on the public dataset (4,100 conversions × ~1.8 avg path length × 8 models).
-
-#### `attribution_models.cross_channel_comparison`
-
-Channel-level aggregation across all models. Use this for high-level model comparison.
-
-**Key columns:**
-
-| Column | Type | Description |
-|---|---|---|
-| `model` | STRING | Model name |
-| `channel` | STRING | Channel |
-| `attributed_conversions` | INT64 | Distinct conversions with this channel present |
-| `total_credit` | FLOAT64 | Sum of attributed credits |
-| `total_revenue_usd` | FLOAT64 | Sum of attributed revenue (USD) |
-| `avg_order_value_usd` | FLOAT64 | Revenue per credited conversion |
-
-### 5.4 BQML Data-Driven Model
-
-#### `ml.attr_data_driven_model`
-
-A BigQuery ML **logistic regression model** trained on binary channel features. The training data includes:
-- **Positive samples**: users who converted, with flags for each channel present in their path.
-- **Negative samples**: users with sessions but no conversions in the window (negative sampling to avoid degenerate training).
-
-The model uses `auto_class_weights = TRUE` to handle class imbalance and `max_iterations = 50`.
-
-#### `attribution_models.attr_data_driven_bqml`
-
-Applies **feature ablation** to compute marginal channel contributions:
-1. Predict P(conversion | all channels) for each conversion.
-2. For each of the 8 channels, predict P(conversion | channel removed).
-3. Removal effect = P(all) − P(without channel).
-4. Normalise effects to sum to 1.0 per conversion.
-
-**Important caveats:**
-- The model requires sufficient training data (>100 conversions recommended). On the public dataset with only 4,100 conversions across 8 channels, the model may produce zero rows or unreliable results.
-- This is **feature ablation**, not true Shapley values (which would require 2^8 = 256 predictions per conversion). It approximates marginal contribution in a single pass.
-- The model dependencies require the training operation to run *before* predictions. Dataform handles this via the explicit `dependencies: ["attr_data_driven_train"]` in the predictions config.
-
-### 5.5 Dashboard Views
-
-Three views are designed for direct connection to Looker Studio, Tableau, or any BI tool that supports BigQuery:
-
-#### `dashboard.attribution_dashboard`
-
-Flattened attribution model comparison. Includes per-channel metrics (`total_revenue_usd`, `total_credit`, `aov_usd`) joined from the cross-channel comparison. Use for:
-- Bar charts comparing model crediting by channel
-- Revenue attribution heatmaps
-- Model comparison tables
-
-#### `dashboard.funnel_dashboard`
-
-Ecommerce funnel stages (`add_to_cart` → `begin_checkout` → `add_shipping_info` → `add_payment_info` → `purchase`) with user counts, session counts, and cart abandonment rates. Use for:
-- Funnel visualisation widgets
-- Drop-off analysis
-
-#### `dashboard.paths_dashboard`
-
-User journey paths with channel sequences as readable strings (e.g., `Organic Search > Direct > Paid Search`). Includes device and geo context. Use for:
-- Top conversion path tables
-- Path pattern analysis
-
-### 5.6 Additional Outputs
-
-| Table / View | Purpose |
+| Column | Description |
 |---|---|
-| `ecommerce_funnel.purchase_funnel` | Staged ecommerce funnel with conversion rates |
-| `ecommerce_funnel.cart_abandonment` | Users who added to cart but didn't purchase |
-| `user_journey.path_analysis` | Top 100 conversion paths by frequency and revenue |
+| `user_pseudo_id` | GA4 user identifier |
+| `conversion_id` | Unique conversion identifier |
+| `conversion_ts` | Timestamp of conversion event |
+| `conversion_event` | Event name (e.g. `purchase`, `begin_checkout`) |
+| `transaction_id` | Ecommerce transaction ID (if available) |
+| `conversion_value_local` | Revenue in local currency |
+| `conversion_value_usd` | Revenue in USD |
+| `path_length` | Number of sessions in the journey |
+| `source` / `medium` / `campaign` / `channel` | Touchpoint dimensions |
+| `model` | Attribution model name |
+| `attributed_credit` | Fraction of credit (sums to 1.0 per conversion) |
+| `attributed_value_usd` | Credit × conversion_value_usd |
+| `attributed_value_local` | Credit × conversion_value_local |
 
-### 5.7 Sample Queries
-
-**Compare model crediting for Organic Search:**
-
-```sql
-SELECT
-  model,
-  ROUND(SUM(attributed_credit), 2) AS total_credit,
-  ROUND(SUM(attributed_revenue), 2) AS total_revenue_usd,
-  ROUND(COUNT(DISTINCT conversion_id), 0) AS conversions
-FROM attribution_models.attribution_mart
-WHERE channel = 'Organic Search'
-GROUP BY 1
-ORDER BY total_revenue_usd DESC;
-```
-
-**View a specific user's journey with all model attributions:**
+**Example query — top channels by revenue (last-click):**
 
 ```sql
 SELECT
-  user_pseudo_id,
-  conversion_id,
-  model,
   channel,
-  attributed_credit,
-  attributed_revenue
-FROM attribution_models.attribution_mart
-WHERE user_pseudo_id = '12345.67890'
-ORDER BY conversion_id, model, channel;
+  SUM(attributed_value_usd) AS revenue,
+  COUNT(DISTINCT conversion_id) AS conversions
+FROM `your-project.attribution_models.attribution_mart`
+WHERE model = 'last_click'
+  AND conversion_event = 'purchase'
+GROUP BY channel
+ORDER BY revenue DESC;
 ```
 
-**Get top conversion paths:**
+### 5.2 `cross_channel_comparison`
+
+Pre-aggregated for dashboards. One row per model × conversion_event × channel.
+
+| Column | Description |
+|---|---|
+| `model` | Attribution model |
+| `conversion_event` | Conversion event name |
+| `channel` | Channel |
+| `attributed_conversions` | Number of conversions |
+| `total_value_local` | Sum of attributed local currency |
+| `total_value_usd` | Sum of attributed USD |
+| `avg_path_length` | Average path length for this segment |
+
+### 5.3 `int_attribution_journeys`
+
+Raw journey data for custom analysis.
 
 ```sql
-SELECT * FROM dashboard.paths_dashboard
-ORDER BY purchase_revenue_in_usd DESC
-LIMIT 20;
+-- Find the longest customer journeys
+SELECT *
+FROM `your-project.intermediate.int_attribution_journeys`
+ORDER BY path_length DESC
+LIMIT 10;
 ```
 
 ---
 
-## 6. Publishing to BigQuery
+## 6. Attribution Models Explained
 
-### 6.1 Using the Public GA4 Dataset (Default)
+### 6.1 Rule-based models
 
-No setup needed. The pipeline reads from `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*` by default. Simply ensure:
+| Model | Logic | Best for |
+|---|---|---|
+| **First Click** | 100% to first session | Brand awareness campaigns |
+| **Last Click** | 100% to last session | Direct response, simple funnels |
+| **Last Non-Direct Click** | 100% to last non-Direct session; falls back to Direct if none | Default GA4 logic |
+| **Linear** | Equal credit to all sessions | Long consideration cycles |
+| **Time Decay** | Credit decays with 7-day half-life | Recent-touch bias |
+| **U-Shape** | 40% first, 40% last, 20% middle | Balanced first/last emphasis |
+| **Position Weighted** | 50% first, 30% last, 20% middle | Data-driven heuristic proxy |
 
-- Your `location` in `.df-credentials.json` and `workflow_settings.yaml` is `US`
-- `ga4_project` is `bigquery-public-data`
-- `ga4_dataset` is `ga4_obfuscated_sample_ecommerce`
+### 6.2 Data-driven (BQML)
 
-The public dataset covers **November 1 – December 20, 2020** and contains obfuscated (anonymised) data from the Google Merchandise Store. It's sufficient for learning and testing all eight models.
+Trains a logistic regression model on:
+- **Positive class:** Users who converted (binary channel flags from their journey)
+- **Negative class:** Users who had sessions but did NOT convert
 
-**Note on query costs**: Reading from the public dataset is **free** (you're not charged for storage), but you pay for the BigQuery compute (analysis) costs of your queries. On the free tier, the first 1 TB of queries per month is free. The full pipeline run processes less than 10 GB — well within the free tier.
+Features: `conversion_event` (categorical) + 17 binary channel flags.
 
-### 6.2 Using Your Own GA4 BigQuery Export
+**Credit assignment:** For each touchpoint in a converted journey, the model's predicted conversion probability is compared with and without that channel. The difference is the marginal contribution.
 
-To run the pipeline against your own GA4 data, update three variables in `workflow_settings.yaml`:
-
-```yaml
-vars:
-  start_date: "20240101"           # Match your GA4 export date range
-  end_date: "20241231"
-  ga4_project: "my-ga4-project"    # Your GCP project hosting the GA4 export
-  ga4_dataset: "analytics_123456789"  # Your GA4 dataset ID
-  lookback_days: "30"
-```
-
-**No SQL changes needed.** The pipeline uses `${constants.GA4_PROJECT}`, `${constants.GA4_DATASET}`, `${constants.START_DATE}`, and `${constants.END_DATE}` throughout, which resolve from the workflow variables.
-
-**Important considerations for your own data:**
-
-1. **Source/medium field selection** — The public dataset uses `event_params` extraction with the first-non-auto-event rule. For your own GA4 export:
-   - If your export is **after mid-2024**, consider modifying `stg_ga4_sessions.sqlx` to use `session_traffic_source_last_click.cross_channel_campaign.source` / `.medium` instead. This field resolves the google/cpc misattribution bug where Google Ads clicks without UTM parameters appear as `google / organic`.
-   - If your export is **after June 2023**, you can use `collected_traffic_source.manual_source` / `.manual_medium`.
-   - The current `event_params` approach works on all export dates.
-   - **Never** use `traffic_source.source` / `.medium` — these are user-level first-touch values that persist across all sessions, making every attribution model produce identical results.
-
-2. **Date sharding** — The pipeline uses `_TABLE_SUFFIX BETWEEN start_date AND end_date` to filter event tables. If your GA4 export uses a different sharding pattern, you may need to adjust the source declaration in `definitions/sources/ga4_events.sqlx`.
-
-3. **Lookback window truncation** — When dates are used as `_TABLE_SUFFIX` filters, the 30-day lookback cannot extend before `start_date`. Sessions in early December 2020 that occurred in late November are excluded because the filter starts at 2020-11-01. See [Common Issues](#73-lookback-window-truncation) for details.
-
-4. **Cross-project access** — If your GA4 export is in a different GCP project than your attribution pipeline, ensure your service account has **BigQuery Data Viewer** (`roles/bigquery.dataViewer`) on the source project.
-
-5. **Scale considerations** — The pipeline uses `CREATE TABLE AS SELECT` for all tables (no partitioning). On datasets with millions of sessions, this is still efficient since BigQuery's columnar storage handles wide scans well. For very large datasets (billions of events), consider:
-   - Narrower date ranges
-   - Pre-filtering events before the pipeline run
-   - Talking to your data engineering team about adding date partitioning to the source tables
-
-### 6.3 Connecting BI Tools
-
-After the pipeline runs, connect your BI tool to BigQuery:
-
-**Looker Studio:**
-1. Create a new data source → BigQuery connector.
-2. Select your project and the `dashboard` dataset.
-3. Choose `attribution_dashboard` as your table.
-4. Build charts: model × channel bar charts, funnel widgets, path tables.
-
-**Tableau:**
-1. Connect to BigQuery using the Tableau BigQuery connector.
-2. Select your project → `attribution_models` → `attribution_mart`.
-3. Use `model` and `channel` as dimensions, `SUM(attributed_revenue)` as the measure.
-
-**Google Sheets (Connected Sheets):**
-1. Open Sheets → Data → Data Connectors → BigQuery.
-2. Connect to `attribution_models.cross_channel_comparison`.
-3. Build pivot tables for model comparison.
+**Known limitations:**
+- Single model trained on all conversion events. If funnel stages have very different channel effects, consider per-conversion-event models (v2.1 roadmap).
+- Requires sufficient training data (recommended: >1,000 conversions, >10,000 non-converters).
+- Model training can take 2–5 minutes.
 
 ---
 
-## 7. Common Issues & Troubleshooting FAQ
+## 7. Troubleshooting
 
-### 7.1 Authentication & Credentials
+### 7.1 Compilation errors
 
-**Q: `dataform run` fails with "Could not authenticate" or "invalid_grant"?**
+| Error | Cause | Fix |
+|---|---|---|
+| `Unrecognized name: session_traffic_source_last_click` | Using `session_stslc` mode on an old GA4 export | Switch to `event_params` mode |
+| `No actions to run` | All tables already exist and are up-to-date | Use `--full-refresh` or delete tables |
+| `Concurrent model update` | BQML model is being trained by another job | Wait or `DROP MODEL IF EXISTS` |
+| `Permission denied` | Service account lacks BigQuery roles | Grant `bigquery.dataEditor` + `bigquery.jobUser` |
 
-**A:** This usually means your `.df-credentials.json` is malformed. Common fixes:
-- Ensure the `credentials` value is a **string** containing escaped JSON, not a nested JSON object. The entire file should be a flat JSON object with three keys.
-- Run `dataform init-creds .df-credentials.json` to validate the format.
-- Ensure the service account has **BigQuery Data Editor** and **BigQuery User** roles.
-- If using `gcloud auth application-default login`, note that Dataform CLI requires the `.df-credentials.json` format specifically — it does not read `~/.config/gcloud/application_default_credentials.json` by default.
+### 7.2 Runtime errors
 
-**Q: I get "Access Denied: BigQuery: Permission bigquery.tables.create denied"?**
+| Error | Cause | Fix |
+|---|---|---|
+| `attr_data_driven_train` fails with "empty training data" | `int_attribution_path_rows` has no rows | Check `stg_ga4_conversions` has data; verify `_TABLE_SUFFIX` range |
+| `int_attribution_journeys` is empty | No conversions in the date range | Extend `start_date`/`end_date`; check conversion events are configured |
+| Attribution credit sums to <1.0 | Path-length edge case in U-shape/position_weighted | Already fixed in v2.0; update if on older version |
+| `last_non_direct_click` drops conversions | Logic bug with `session_position_desc` | Already fixed in v2.0; update if on older version |
+| Channel shows as "source / medium" | Catch-all triggered — unknown source/medium combination | Add channel mapping in `channel_grouping.js` |
 
-**A:** Your service account is missing the **BigQuery Data Editor** role. Grant it in IAM & Admin. Remember that IAM changes can take up to 2 minutes to propagate.
+### 7.3 Data quality issues
 
-### 7.2 0-Row Tables from Partitioning Bug
+| Symptom | Diagnosis | Fix |
+|---|---|---|
+| All sessions are "Direct" | Source extraction mode doesn't match export schema | Check GA4 export version; switch mode |
+| 0 conversions | Wrong `event_name` in config | Verify event names in `conversion_config.js` match GA4 |
+| Revenue is NULL | `value_mode` set to `count` | Change to `revenue` in `conversion_config.js` |
+| Duplicate sessions | Missing `ROW_NUMBER()` dedup | Already handled in `stg_ga4_sessions` |
+| Very long paths (>20 sessions) | Bot traffic or returning users | Add bot filtering in `stg_ga4_sessions` WHERE clause |
 
-**Q: My staging tables have 0 rows after a successful run?**
+### 7.4 Performance issues
 
-**A:** This was a known bug in an earlier version where `CREATE TABLE AS SELECT ... PARTITION BY ...` silently created empty tables. This has been **fixed** — all table configs now omit `partitionBy` and `clusterBy`. If you're still seeing 0 rows, ensure you're on the latest commit and try:
-
-```bash
-# Drop and recreate all tables
-dataform run --default-database=YOUR_PROJECT_ID --full-refresh
-```
-
-### 7.3 Lookback Window Truncation
-
-**Q: Why do some conversions have fewer sessions in their journey than expected?**
-
-**A:** The `_TABLE_SUFFIX BETWEEN '20201101' AND '20201220'` filter in the staging models limits which event data is read. If a conversion occurs on 2020-11-02, its 30-day lookback extends to 2020-10-03, but the earliest data available is 2020-11-01. Sessions from October are silently excluded.
-
-**Workarounds:**
-- Set `start_date` earlier than your analysis range (e.g., if analysing December, set `start_date` to November 1st).
-- For production pipelines, remove the `_TABLE_SUFFIX` filter from the staging models and instead filter by `event_timestamp` directly:
-
-```sql
-WHERE TIMESTAMP_MICROS(event_timestamp) >= TIMESTAMP('2020-11-01')
-  AND TIMESTAMP_MICROS(event_timestamp) <  TIMESTAMP('2020-12-21')
-```
-
-This reads more data but provides an accurate lookback. The trade-off is query cost vs. attribution accuracy.
-
-### 7.4 BQML Training Issues
-
-**Q: The `attr_data_driven_bqml` table is empty or the training failed?**
-
-**A:** Several possible causes:
-
-1. **"Input data doesn't contain any rows"** — This means the training query returned zero rows. This was fixed in the latest version by adding negative samples (non-converted user-paths). Ensure you're on the latest commit.
-
-2. **Too few conversions** — BQML logistic regression needs enough data to converge. With the public dataset's ~4,100 conversions spread across 8 channels, the model may not reach meaningful separation. For reliable data-driven attribution, aim for at least **500+ conversions and 1,000+ non-converting users**.
-
-3. **Training ran before predictions** — This was also fixed by adding `dependencies: ["attr_data_driven_train"]` explicitly. If upgrading from an older version, re-run the ML pipeline:
-
-```bash
-dataform run --default-database=YOUR_PROJECT_ID --tags ml --full-refresh
-```
-
-4. **Model convergence failure** — Check the BigQuery ML model in the GCP Console under your project → `ml` → `attr_data_driven_model`. Look at the training info tab for convergence status, iteration count, and ROC AUC. A model that fails to converge (all coefficients near zero) indicates the channel features don't discriminate converters from non-converters — this is expected on small datasets.
-
-**Q: Can I skip the BQML model if I only want rule-based attribution?**
-
-**A:** Yes. The BQML model is entirely optional. Run the pipeline without it:
-
-```bash
-dataform run --default-database=YOUR_PROJECT_ID --tags daily,attribution --exclude-tags ml
-```
-
-The `attribution_mart` will still have 7 models' worth of data. The `data_driven_bqml` rows will simply be absent from the union.
-
-### 7.5 Compilation Errors
-
-**Q: `dataform compile` fails with "Could not resolve ref..."?**
-
-**A:** This happens when Dataform can't find a referenced table. Common causes:
-- You haven't created the tables yet (compile doesn't check data, only schema references).
-- A `.sqlx` file has a typo in the `ref("schema", "name")` call.
-- The `schema` in the config block doesn't match the directory structure convention.
-
-**Q: "vars.ga4_project is not defined"?**
-
-**A:** Ensure your `workflow_settings.yaml` has a `vars:` section with all required variables. The `includes/constants.js` file provides safe defaults, but if the YAML is malformed (bad indentation), the vars won't parse.
-
-### 7.6 Cost Concerns
-
-**Q: How much will this cost on BigQuery?**
-
-**A:** For the public dataset (full pipeline, one run):
-- **Processed data**: ~8–12 GB total across all queries
-- **Free tier**: 1 TB/month free → ~80–120 full pipeline runs per month before any charges
-- **Beyond free tier**: ~$0.05–0.08 per full run (at $6.25/TB on-demand pricing)
-- **Storage**: All output tables combined ~50–150 MB → negligible cost (~$0.001/month)
-
-For your own GA4 data, costs scale with data volume. A typical mid-size ecommerce site (1M sessions/month) processes ~200–500 GB per run.
-
-**Tips to reduce costs:**
-- Use shorter date ranges during development
-- Run only the tags you need (e.g., `--tags staging` while debugging)
-- Schedule pipeline runs during off-peak hours for lower slot contention
-- Consider BigQuery flat-rate pricing if running at enterprise scale
-
-### 7.7 Dependency Chain Issues
-
-**Q: Some downstream tables didn't refresh after I changed an upstream table?**
-
-**A:** Dataform uses `${ref()}` declarations to build the dependency graph automatically. If you've manually deleted a table or edited a file after compilation, run with `--full-refresh` to force all tables to rebuild.
-
-**Q: What's the correct run order?**
-
-**A:** Dataform determines this automatically, but here's the logical flow:
-```
-sources.ga4_events
-  → staging.stg_ga4_sessions
-  → staging.stg_ga4_conversions
-    → intermediate.int_attribution_journeys
-      → intermediate.int_attribution_path_rows
-        → attribution_models.attr_* (all 7 rule-based models)
-        → attribution_models.attribution_mart
-          → attribution_models.cross_channel_comparison
-          → dashboard.attribution_dashboard
-        → ml.attr_data_driven_train
-          → attribution_models.attr_data_driven_bqml
-            → (also feeds into attribution_mart)
-```
+| Symptom | Fix |
+|---|---|
+| Pipeline runs >30 minutes | Reduce `lookback_days`; narrow date range; use incremental models |
+| High BigQuery costs | Use `_TABLE_SUFFIX` partitioning (already implemented); avoid full refreshes |
+| BQML training fails | Ensure training table has >100 rows; check for NULL features |
 
 ---
 
-## 8. Next Steps
+## 8. Advanced Topics
 
-### 8.1 Add Custom Channel Groupings
+### 8.1 Adding a custom channel
 
-The channel taxonomy is defined once in `includes/channel_grouping.js`. To add custom channels (e.g., separating branded vs. non-branded paid search), edit the CASE expression:
+1. Edit `includes/channel_grouping.js`
+2. Add a `WHEN` clause before the `ELSE`:
 
 ```javascript
-function channelGrouping(mediumExpr, sourceExpr) {
-  return `CASE
-    WHEN COALESCE(${mediumExpr}, '(none)') IN ('cpc', 'ppc', 'paidsearch')
-      AND LOWER(COALESCE(${sourceExpr}, '')) LIKE '%brand%'
-      THEN 'Paid Search - Brand'
-    WHEN COALESCE(${mediumExpr}, '(none)') IN ('cpc', 'ppc', 'paidsearch')
-      THEN 'Paid Search - Non-Brand'
-    WHEN COALESCE(${mediumExpr}, '(none)') = 'organic' THEN 'Organic Search'
-    -- ... rest of cases ...
-    ELSE CONCAT(COALESCE(${sourceExpr}, '(direct)'), ' / ', COALESCE(${mediumExpr}, '(none)'))
-  END`;
-}
-
-module.exports = { channelGrouping };
+WHEN COALESCE(${sourceExpr}, '') = 'my_custom_source' THEN 'Custom Channel'
 ```
 
-All models automatically pick up the new channels because they all call `${channel_grouping.channelGrouping(...)}`. No model SQL needs to change.
+3. Add to `getChannelList()`:
 
-**If you add or remove channels**, you must also update the BQML training and prediction files:
-- `definitions/ml/attr_data_driven_train.sqlx` — add/remove channel flag columns
-- `definitions/attribution_models/attr_data_driven_bqml.sqlx` — add/remove channel prediction blocks and the channel list in the `CROSS JOIN UNNEST`
+```javascript
+function getChannelList() {
+  return [
+    'Custom Channel',
+    // ... existing channels
+  ];
+}
+```
 
-### 8.2 Add a New Attribution Model
+4. Recompile — all models update automatically.
 
-Adding a new model requires only one new `.sqlx` file:
+### 8.2 Adding a custom attribution model
 
-1. Create `definitions/attribution_models/attr_your_model.sqlx`.
-2. Model config:
+1. Create `definitions/attribution_models/attr_my_model.sqlx`
+2. Copy structure from `attr_linear.sqlx`
+3. Implement your credit-allocation logic
+4. Add to `attribution_mart.sqlx` UNION ALL
+5. Add to `cross_channel_comparison.sqlx`
+
+### 8.3 Incremental models (production)
+
+For daily runs with large datasets, convert staging tables to incremental:
 
 ```sql
 config {
-  type: "table",
-  schema: "attribution_models",
-  name: "attr_your_model",
-  tags: ["attribution", "model"],
-  description: "Your custom model description."
+  type: "incremental",
+  // ...
+}
+
+SELECT * FROM ...
+${when(incremental(), `WHERE _TABLE_SUFFIX >= '${constants.START_DATE}'`)}
+```
+
+### 8.4 Custom conversion value
+
+For `fixed` value mode, modify `includes/conversion_config.js`:
+
+```javascript
+{
+  event: 'sign_up',
+  value_mode: 'fixed',
+  fixed_value: 50.00,  // USD
+  description: 'Newsletter signup'
 }
 ```
 
-3. Read from the intermediate layer and output the standard schema:
+Then update `getValueExpr()` to handle `fixed_value`.
 
-```sql
-SELECT
-  user_pseudo_id,
-  conversion_id,
-  conversion_ts,
-  transaction_id,
-  purchase_revenue,
-  purchase_revenue_in_usd,
-  path_length,
-  source,
-  medium,
-  campaign,
-  channel,
-  'your_model_name' AS model,
-  -- Your attribution logic here, e.g.:
-  1.0 / path_length AS attributed_credit,
-  purchase_revenue_in_usd / path_length AS attributed_revenue,
-  purchase_revenue / path_length AS attributed_revenue_local
-FROM ${ref("intermediate", "int_attribution_path_rows")}
-```
+### 8.5 Cross-project GA4 exports
 
-4. Add a `UNION ALL SELECT * FROM ${ref("attribution_models", "attr_your_model")}` line to `definitions/attribution_models/attribution_mart.sqlx`.
-5. Update `cross_channel_comparison.sqlx` if needed (it reads from `attribution_mart`, so it may work automatically).
-
-### 8.3 Use with Your Own GA4 Data
-
-See [Section 6.2](#62-using-your-own-ga4-bigquery-export) for the basic configuration. Additional steps for production use:
-
-**Schedule automated runs:**
-
-Use Cloud Scheduler + Cloud Run or Workflows to trigger Dataform runs on a schedule. Example approach:
-
-```bash
-# Create a Cloud Run job that executes:
-dataform run --default-database=$PROJECT_ID --tags daily
-```
-
-Set environment variables for credentials and project ID. Schedule daily after your GA4 export completes (typically 8–12 hours after midnight UTC).
-
-**Dataform Cloud alternative:**
-
-If you prefer a managed service, [Dataform Cloud](https://dataform.co) (now part of Google Cloud) can run this project natively. Import the repository and configure the workflow settings through the UI.
-
-**Incremental refresh strategy:**
-
-For ongoing production use with your own GA4 data:
-
-1. Set up a daily Dataform run with `--tags daily` to refresh staging, intermediate, mart, and dashboards.
-2. Run `--tags attribution --full-refresh` weekly to recalculate all models.
-3. Run `--tags ml` monthly or when you have >2 weeks of new data for the BQML model.
-
-### 8.4 Customise the Lookback Window
-
-Change `lookback_days` in `workflow_settings.yaml` to adjust how far back the pipeline looks for sessions before each conversion:
+If your GA4 data is in a different project:
 
 ```yaml
 vars:
-  lookback_days: "60"  # 60-day attribution window
+  ga4_project: "client-project"
+  ga4_dataset: "analytics_123456789"
 ```
 
-The pipeline uses this value in `int_attribution_journeys.sqlx`:
-```sql
-AND s.session_start >= TIMESTAMP_SUB(c.conversion_ts, INTERVAL ${constants.LOOKBACK_DAYS} DAY)
-```
-
-Common lookback windows: 7 days (short cycle products), 30 days (standard ecommerce), 90 days (considered purchases like B2B or high-ticket items).
-
-### 8.5 Monitor Data Quality
-
-The pipeline includes built-in assertions. View their results:
-
-```sql
-SELECT * FROM attribution_assertions.assertions_stg_ga4_sessions
-UNION ALL
-SELECT * FROM attribution_assertions.assertions_stg_ga4_conversions
-UNION ALL
-SELECT * FROM attribution_assertions.assertions_int_attribution_journeys
-UNION ALL
-SELECT * FROM attribution_assertions.assertions_int_attribution_path_rows
-ORDER BY assertion_name;
-```
-
-Failed assertions indicate data quality issues — investigate before trusting attribution results.
-
-### 8.6 Join with Cost Data
-
-For ROAS (Return on Ad Spend) analysis, join the attribution output with your ad platform cost data:
-
-```sql
-WITH cost AS (
-  SELECT 'Paid Search' AS channel, 5000.00 AS spend_usd
-  UNION ALL
-  SELECT 'Social', 3000.00
-  -- ... more channels
-)
-SELECT
-  m.model,
-  m.channel,
-  SUM(m.attributed_revenue) AS total_revenue,
-  c.spend_usd,
-  ROUND(SUM(m.attributed_revenue) / NULLIF(c.spend_usd, 0), 2) AS roas
-FROM attribution_models.cross_channel_comparison m
-LEFT JOIN cost c USING (channel)
-GROUP BY 1, 2, c.spend_usd
-ORDER BY roas DESC;
-```
-
-### 8.7 Explore Related Projects
-
-- [bigquery-meridian-mmm](https://github.com/GlitchG/bigquery-meridian-mmm) — Bayesian Media Mix Modeling for incrementality measurement, complementing attribution analysis.
-- [ga4-bigquery-incremental](https://github.com/GlitchG/ga4-bigquery-incremental) — Dataform-native GA4 incremental refresh pipeline for production GA4 data.
-- [marketing_analytics_sample_reporting](https://github.com/GlitchG/marketing_analytics_sample_reporting) — dbt project for paid ads reporting.
+The pipeline will read from `client-project` and write to your default database.
 
 ---
 
-## Quick Reference
+## 9. Validation & Testing
 
-### Common Commands
+### 9.1 Built-in assertions
+
+The pipeline includes 6 Dataform assertions:
+
+1. `stg_ga4_conversions` unique key on `(user_pseudo_id, event_timestamp, event_name)`
+2. `stg_ga4_conversions` row conditions: `conversion_value_usd >= 0`, `event_timestamp` valid
+3. `int_attribution_journeys` unique key on `(user_pseudo_id, conversion_id)`
+4. `int_attribution_journeys` row conditions: `conversion_value_usd >= 0`, `path_length >= 1`
+5. `int_attribution_path_rows` unique key on `(user_pseudo_id, conversion_id, session_position_asc)`
+6. `int_attribution_path_rows` row conditions: `ARRAY_LENGTH(path) = path_length`
+
+### 9.2 Post-run validation queries
+
+Run `validation/validation-queries.sql` after each execution:
 
 ```bash
-# Full pipeline from scratch
-dataform run --default-database=PROJECT_ID --full-refresh
-
-# Selective runs
-dataform run --default-database=PROJECT_ID --tags staging
-dataform run --default-database=PROJECT_ID --tags attribution
-dataform run --default-database=PROJECT_ID --tags dashboard
-dataform run --default-database=PROJECT_ID --tags daily
-
-# Compile only (check for errors)
-dataform compile --default-database=PROJECT_ID
-
-# Run a single action
-dataform run --default-database=PROJECT_ID --actions staging.stg_ga4_sessions
-
-# Run with assertions only
-dataform run --default-database=PROJECT_ID --tags assertions
+bq query --use_legacy_sql=false < validation/validation-queries.sql
 ```
 
-### Key Files to Edit
+Key checks:
+- Credit sums to 1.0 per conversion
+- No unexpected conversion events
+- Revenue conservation (attributed total = raw total)
+- No duplicate sessions or journeys
+- Channel coverage matches taxonomy
 
-| File | What to Change |
-|---|---|
-| `workflow_settings.yaml` | Project ID, dates, GA4 source, lookback |
-| `.df-credentials.json` | Service account credentials |
-| `includes/channel_grouping.js` | Custom channel definitions |
-| `definitions/attribution_models/attribution_mart.sqlx` | Add new model UNION ALL lines |
+### 9.3 Testing on the public sample
 
-### Output Schema Summary
+The public sample (`bigquery-public-data.ga4_obfuscated_sample_ecommerce`) is pre-configured as the default. Use it to verify your setup before connecting to private data.
 
-| Dataset | Key Tables | Primary Use |
-|---|---|---|
-| `staging` | `stg_ga4_sessions`, `stg_ga4_conversions` | Source-extracted, deduplicated base tables |
-| `intermediate` | `int_attribution_journeys`, `int_attribution_path_rows` | Conversion journeys for model consumption |
-| `attribution_models` | `attribution_mart`, `cross_channel_comparison`, `attr_*` | All model outputs, reporting-ready |
-| `dashboard` | `attribution_dashboard`, `funnel_dashboard`, `paths_dashboard` | BI tool views |
-| `ml` | `attr_data_driven_model`, `attr_data_driven_train` | BQML model and training data |
-| `attribution_assertions` | `assertions_*` | Data quality check results |
+**Known public sample quirks:**
+- Source/medium values are anonymised: `<Other>`, `(data deleted)` — mapped to `Direct`
+- No consent mode v2 fields (2020 dataset)
+- No `session_traffic_source_last_click` (use `event_params` mode)
 
 ---
 
-*For questions, bug reports, or contributions, please open an issue on [GitHub](https://github.com/GlitchG/ga4-attribution-models).*
+## 10. Performance & Cost
+
+### Public sample (default config)
+
+| Stage | BigQuery Cost | Time |
+|---|---|---|
+| Staging (2 tables) | ~2.9 GiB | ~2 min |
+| Intermediate (2 tables) | ~0.15 GiB | ~1 min |
+| Attribution models (7 rule-based) | ~0.08 GiB | ~2 min |
+| BQML training | ~0.05 GiB | ~3 min |
+| Marts (2 tables) | ~0.2 GiB | ~1 min |
+| **Total** | **~3.4 GiB** | **~9 min** |
+
+**Cost estimate:** ~$0.02 USD per run (on-demand pricing).
+
+### Production dataset (1B+ events)
+
+| Optimization | Impact |
+|---|---|
+| Incremental models | 10–50x faster daily runs |
+| Narrow date range | Linear cost reduction |
+| Reduce `lookback_days` | Reduces partition scans |
+| Materialised intermediate tables | Faster model re-runs |
+
+---
+
+## 11. Migration from v1.x
+
+### Breaking changes
+
+| v1.x | v2.0 | Action required |
+|---|---|---|
+| `purchase_revenue` | `conversion_value_local` | Update downstream queries |
+| `purchase_revenue_in_usd` | `conversion_value_usd` | Update downstream queries |
+| `attributed_revenue` | `attributed_value_usd` | Update downstream queries |
+| `attributed_revenue_local` | `attributed_value_local` | Update downstream queries |
+| Hardcoded `purchase` filter | Dynamic `conversion_config.js` | Edit `conversion_config.js` |
+| 8 channels | 17 channels | Update cost module channel mapping |
+| `source_resolution.js` inline | Mode-switchable via var | Set `source_extraction_mode` |
+
+### Migration checklist
+
+- [ ] Update downstream dashboards/queries with new column names
+- [ ] Review `conversion_config.js` — ensure desired events are listed
+- [ ] Set `source_extraction_mode` based on your GA4 export version
+- [ ] Update cost module channel mappings (if using)
+- [ ] Test on public sample before production
+- [ ] Run validation queries
+
+---
+
+## Appendix: File Reference
+
+```
+includes/
+  channel_grouping.js      -- 17-channel CASE logic
+  conversion_config.js     -- Conversion events + value modes
+  constants.js             -- Project vars + safe defaults
+  source_resolution.js     -- Source extraction mode switch
+
+definitions/
+  staging/
+    stg_ga4_sessions.sqlx      -- Session extraction
+    stg_ga4_conversions.sqlx   -- Conversion extraction
+  intermediate/
+    int_attribution_journeys.sqlx     -- Path building
+    int_attribution_path_rows.sqlx    -- Row-level unnest
+  attribution_models/
+    attr_*.sqlx                -- 8 attribution models
+    attribution_mart.sqlx      -- Unified output
+    cross_channel_comparison.sqlx  -- Aggregated comparison
+  ml/
+    attr_data_driven_train.sqlx   -- BQML training
+  cost/
+    attribution_with_roas.sqlx    -- Cost enrichment (disabled by default)
+  dashboard/
+    attribution_dashboard.sqlx    -- Dashboard views
+  user_journey/
+    path_analysis.sqlx         -- Top 100 paths
+
+validation/
+  validation-queries.sql     -- Post-run checks
+```
+
+---
+
+*For issues or feature requests, open a GitHub issue or submit a PR.*

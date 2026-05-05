@@ -192,6 +192,44 @@ Edit `includes/constants.js` to split Paid Search into Brand vs Non-Brand:
 const BRAND_TERMS_REGEX = 'mybrand|my-brand|brandcampaign';
 ```
 
+#### Validation & Testing Results
+
+The pipeline has been tested end-to-end on `bigquery-public-data.ga4_obfuscated_sample_ecommerce`:
+
+**Assertions (all pass):**
+- 0 duplicate sessions (deduped by `user_pseudo_id + session_id`)
+- 0 duplicate journeys (deduped by `user_pseudo_id + conversion_id`)
+- 0 duplicate path rows
+- Credit sums to 1.0 per conversion across all models
+- Revenue conservation: attributed total = raw total (±$5 rounding tolerance)
+- 0 unexpected channels (all map to the 17-channel taxonomy)
+
+**Dataset characteristics (public sample, 2020-11-01 to 2020-12-20):**
+- 63,578 conversion journeys across 3 event types
+- 71% of users have multiple conversions
+- 54% single-session paths, 17.5% two-session, 28.5% 3+ sessions
+- Average lookback: 3.5 days; max: 30 days
+- Channel distribution: Direct 87%, Organic Search 12.5%, Referral 8.9%
+
+**Known public sample quirks:**
+- Source/medium values are anonymised (`<Other>`, `(data deleted)`) — mapped to `Direct`
+- No consent mode v2 fields (2020 dataset predates them)
+- No `session_traffic_source_last_click` (use `event_params` mode)
+
+**Performance:** ~3.4 GiB processed, ~9 minutes total runtime, ~$0.02 per run.
+
+#### Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `Unrecognized name: session_traffic_source_last_click` | Wrong source extraction mode for your GA4 export | Set `source_extraction_mode: "event_params"` |
+| `attr_data_driven_train` fails | Empty training data or concurrent model update | Check `stg_ga4_conversions` has data; wait and retry |
+| All sessions show as "Direct" | GA4 export doesn't have the expected source fields | Verify export version; switch source extraction mode |
+| 0 conversions output | Date range has no conversion events | Extend `start_date`/`end_date`; check `conversion_config.js` |
+| High BigQuery costs | Wide date ranges or large lookback | Reduce `lookback_days`; use incremental models |
+
+See `docs/USAGE_GUIDE.md` for comprehensive troubleshooting.
+
 #### Related
 
 - [bigquery-meridian-mmm](https://github.com/GlitchG/bigquery-meridian-mmm) — Bayesian MMM for incrementality
