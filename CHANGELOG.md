@@ -14,6 +14,47 @@ All notable changes to this project are documented in this file.
 7. **Branded paid search:** Regex on campaign name via `includes/constants.js` `BRAND_TERMS_REGEX`.
 8. **Privacy / consent mode v2:** Pass-through of `privacy_info` fields + runtime `exclude_modeled_events` flag.
 
+### Added
+- **Multi-conversion support** — pipeline now tracks any conversion event type (purchase, begin_checkout, add_to_cart, generate_lead, etc.) via `includes/conversion_config.js`. Add events by editing one file — no SQL changes needed.
+- **Three value modes** per conversion event:
+  - `revenue` — uses ecommerce revenue (purchase_revenue_in_usd)
+  - `fixed` — assigns a fixed monetary value (e.g. €50/lead)
+  - `count` — credit shares of 1.0, no monetary value (attributed_value_usd is NULL)
+- **Auto source extraction mode** — `stg_ga4_sessions.sqlx` automatically detects best available source/medium field:
+  - Priority 1: `session_traffic_source_last_click` (post-2024-07 exports — fixes google/cpc bug)
+  - Priority 2: `collected_traffic_source` (post-2023-06 exports — event-level raw values)
+  - Priority 3: `event_params` first-non-auto-event rule (fallback for all exports incl. public sample)
+- **Expanded 17-channel taxonomy** — replaces 8-channel grouping:
+  - Cross-network, Paid Search Brand, Paid Search Non-Brand, Paid Shopping, Paid Social,
+    Paid Video, Display, Organic Search, Organic Shopping, Organic Social, Organic Video,
+    Email, SMS, Affiliate, Audio, Mobile Push, Referral, Direct
+- **Deep UTM + click ID passthrough** — all session fields now flow through to attribution models:
+  - Click IDs: gclid, dclid, srsltid, msclkid, fbclid, ttclid, twclid, li_fat_id
+  - Page context: page_location, page_referrer, hostname
+  - Device: browser, browser_version
+  - Privacy: analytics_storage, ads_storage, uses_transient_token
+- **`exclude_modeled_events` var** — set to `"true"` to exclude consent-mode v2 modeled events from analysis.
+- **`BRAND_TERMS_REGEX`** in `includes/constants.js` — edit per client to split Paid Search into Brand vs Non-Brand.
+- **`source_extraction_mode` var** — explicit modes: `auto` (default), `session_stslc`, `collected`, `event_params`.
+- **`validation/validation-queries.sql`** — 10 validation checks for post-run verification.
+- **`getChannelList()`** in `includes/channel_grouping.js` — single source of truth for BQML feature engineering.
+
+### Changed (breaking)
+- **Schema renames** across all attribution models and marts:
+  - `purchase_revenue` → `conversion_value_local`
+  - `purchase_revenue_in_usd` → `conversion_value_usd`
+  - `attributed_revenue` → `attributed_value_usd`
+  - `attributed_revenue_local` → `attributed_value_local`
+- **`cross_channel_comparison.sqlx`** now groups by `model, conversion_event, channel` and includes `value_mode` column.
+- **`attribution_mart.sqlx`** now includes `conversion_event` in every row.
+- **`_TABLE_SUFFIX` filtering** in staging models now extends backward by `max(lookback_days)` to prevent lookback truncation.
+
+### Fixed
+- **`int_attribution_journeys.sqlx`** — removed hardcoded `WHERE conversion_event = 'purchase'` filter. All conversion events now produce independent journeys.
+- **`stg_ga4_conversions.sqlx`** — uses dynamic `getEventList()` from `conversion_config.js` instead of hardcoded event names.
+- **BQML training** — updated to 17-channel flags + `conversion_event` as categorical feature.
+- **BQML predictions** — 17 ablation CTEs replacing 8 hardcoded channels.
+
 ## [Unreleased] — 2026-05-05
 
 ### Added
