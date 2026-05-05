@@ -1,0 +1,66 @@
+config {
+  type: "table",
+  schema: "cost",
+  tags: ["cost"],
+  description: "Google Ads daily cost data. Fill in your source table below. If using Google Ads Transfer Service, replace the CTE with your transfer dataset tables.",
+  disabled: true,
+  columns: {
+    date: "Report date",
+    channel: "Normalised channel name (must match attribution_models.channel values)",
+    campaign: "Campaign name",
+    cost_usd: "Cost in USD",
+    impressions: "Impressions",
+    clicks: "Clicks",
+    source_system: "Always 'google_ads'"
+  }
+}
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- INSTRUCTIONS
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 1.  Set disabled: false above once you have a data source.
+-- 2.  Replace the CTE below with your actual Google Ads data.
+--     Options:
+--       A) Google Ads Data Transfer Service → use tables in your transfer dataset
+--       B) Supermetrics / Fivetran / custom API → use their BQ tables
+--       C) Manual CSV upload → create a native BQ table and SELECT from it
+-- 3.  Map campaign names to the same channel values used in the attribution
+--     pipeline (e.g. 'Paid Search', 'Paid Social', 'Display').
+-- 4.  Ensure date format is DATE (not TIMESTAMP).
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+WITH raw_google_ads AS (
+  -- EXAMPLE — replace with your actual table
+  -- SELECT
+  --   PARSE_DATE('%Y-%m-%d', _PARTITIONDATE) AS date,
+  --   'Paid Search' AS channel,
+  --   campaign_name AS campaign,
+  --   cost_micros / 1e6 AS cost_usd,
+  --   impressions,
+  --   clicks
+  -- FROM `your-project.your_transfer_dataset.campaign_basic_stats`
+  -- WHERE _PARTITIONDATE BETWEEN '2024-01-01' AND '2024-12-31'
+
+  -- Placeholder — returns zero rows until you wire in real data
+  SELECT
+    DATE('2000-01-01') AS date,
+    CAST(NULL AS STRING) AS channel,
+    CAST(NULL AS STRING) AS campaign,
+    CAST(NULL AS FLOAT64) AS cost_usd,
+    CAST(NULL AS INT64) AS impressions,
+    CAST(NULL AS INT64) AS clicks
+  WHERE FALSE
+)
+
+SELECT
+  date,
+  channel,
+  campaign,
+  cost_usd,
+  impressions,
+  clicks,
+  'google_ads' AS source_system
+FROM raw_google_ads
+WHERE date IS NOT NULL
+  AND channel IS NOT NULL
+  AND cost_usd IS NOT NULL

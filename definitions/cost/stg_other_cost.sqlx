@@ -1,0 +1,69 @@
+config {
+  type: "table",
+  schema: "cost",
+  tags: ["cost"],
+  description: "Other ad platform cost data (TikTok, LinkedIn, programmatic, influencer, offline). Add one CTE per platform and UNION ALL. Normalise channel names to match attribution_models.channel values.",
+  disabled: true,
+  columns: {
+    date: "Report date",
+    channel: "Normalised channel name (must match attribution_models.channel values)",
+    campaign: "Campaign name",
+    cost_usd: "Cost in USD",
+    impressions: "Impressions",
+    clicks: "Clicks",
+    source_system: "Platform identifier, e.g. 'tiktok', 'linkedin', 'programmatic'"
+  }
+}
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- INSTRUCTIONS
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 1.  Set disabled: false above.
+-- 2.  Add a CTE for each additional platform, then UNION ALL in the final SELECT.
+-- 3.  Normalise channel names to the exact values used in attribution_models.channel.
+-- 4.  Ensure all costs are in USD (convert if necessary).
+-- 5.  If a platform has no campaign name, use a generic value like 'Untagged'.
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+WITH tiktok_ads AS (
+  -- SELECT
+  --   DATE(date) AS date,
+  --   'Paid Social' AS channel,
+  --   campaign_name AS campaign,
+ --   spend AS cost_usd,
+ --   impressions,
+  --   clicks
+  -- FROM `your-project.your_dataset.tiktok_ads`
+  SELECT
+    DATE('2000-01-01') AS date,
+    CAST(NULL AS STRING) AS channel,
+    CAST(NULL AS STRING) AS campaign,
+    CAST(NULL AS FLOAT64) AS cost_usd,
+    CAST(NULL AS INT64) AS impressions,
+    CAST(NULL AS INT64) AS clicks
+  WHERE FALSE
+),
+
+linkedin_ads AS (
+  -- SELECT
+  --   DATE(start_date) AS date,
+  --   'Paid Social' AS channel,
+  --   campaign_name AS campaign,
+  --   cost_in_usd AS cost_usd,
+  --   impressions,
+  --   clicks
+  -- FROM `your-project.your_dataset.linkedin_campaigns`
+  SELECT
+    DATE('2000-01-01') AS date,
+    CAST(NULL AS STRING) AS channel,
+    CAST(NULL AS STRING) AS campaign,
+    CAST(NULL AS FLOAT64) AS cost_usd,
+    CAST(NULL AS INT64) AS impressions,
+    CAST(NULL AS INT64) AS clicks
+  WHERE FALSE
+)
+
+SELECT date, channel, campaign, cost_usd, impressions, clicks, 'tiktok' AS source_system FROM tiktok_ads
+UNION ALL
+SELECT date, channel, campaign, cost_usd, impressions, clicks, 'linkedin' AS source_system FROM linkedin_ads
+WHERE date IS NOT NULL AND channel IS NOT NULL AND cost_usd IS NOT NULL

@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased] — 2026-05-05
 
+### Added
+- **Optional cost module** (`definitions/cost/`) for ROAS, CPA, and marginal revenue analysis:
+  - `stg_google_ads_cost.sqlx` — Google Ads cost template (disabled by default)
+  - `stg_meta_ads_cost.sqlx` — Meta Ads cost template (disabled by default)
+  - `stg_other_cost.sqlx` — Other platforms template (TikTok, LinkedIn, etc.)
+  - `int_unified_cost.sqlx` — Aggregated daily cost by channel
+  - `attribution_with_roas.sqlx` — Attribution results joined with cost (ROAS, CPA, efficiency)
+  - `docs/COST_MODULE_SETUP.md` — Platform-specific setup guide
+
 ### Fixed
 - **BQML training fix** — `attr_data_driven_train.sqlx` now includes negative samples (non-converted user-paths from `stg_ga4_sessions`) unioned with positive samples (converted paths from `int_attribution_path_rows`). Previously trained on label=1 only, causing degenerate input and "Input data doesn't contain any rows" error.
 - **Added `dependencies: ["attr_data_driven_train"]`** to `attr_data_driven_bqml.sqlx` — operations don't produce a `ref()`-able output, so Dataform couldn't infer this dependency. Without it, predictions could run before training.

@@ -1,0 +1,66 @@
+config {
+  type: "table",
+  schema: "cost",
+  tags: ["cost"],
+  description: "Meta (Facebook/Instagram) Ads daily cost data. Fill in your source table below. If using a connector (Supermetrics, Fivetran, custom), point to their BQ tables. If using manual CSV upload, create a native BQ table first.",
+  disabled: true,
+  columns: {
+    date: "Report date",
+    channel: "Normalised channel name (must match attribution_models.channel values)",
+    campaign: "Campaign name",
+    cost_usd: "Cost in USD",
+    impressions: "Impressions",
+    clicks: "Clicks",
+    source_system: "Always 'meta_ads'"
+  }
+}
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- INSTRUCTIONS
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 1.  Set disabled: false above once you have a data source.
+-- 2.  Replace the CTE below with your actual Meta Ads data.
+--     Options:
+--       A) Meta Marketing API → use tables from Supermetrics / Fivetran / Stitch
+--       B) GA4 Data Import CSV → upload same CSV to BQ as a table
+--       C) Manual spreadsheet → upload to BQ via console or Cloud Storage
+-- 3.  Map placement/platform breakdown to channel names that match your
+--     attribution pipeline (e.g. 'Paid Social' for Facebook+Instagram).
+-- 4.  Meta reports spend in the account currency — convert to USD if needed.
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+WITH raw_meta_ads AS (
+  -- EXAMPLE — replace with your actual table
+  -- SELECT
+  --   DATE(date_start) AS date,
+  --   'Paid Social' AS channel,
+  --   campaign_name AS campaign,
+  --   spend AS cost_usd,
+  --   impressions,
+  --   clicks
+  -- FROM `your-project.your_dataset.meta_ads_insights`
+  -- WHERE DATE(date_start) BETWEEN '2024-01-01' AND '2024-12-31'
+
+  -- Placeholder — returns zero rows until you wire in real data
+  SELECT
+    DATE('2000-01-01') AS date,
+    CAST(NULL AS STRING) AS channel,
+    CAST(NULL AS STRING) AS campaign,
+    CAST(NULL AS FLOAT64) AS cost_usd,
+    CAST(NULL AS INT64) AS impressions,
+    CAST(NULL AS INT64) AS clicks
+  WHERE FALSE
+)
+
+SELECT
+  date,
+  channel,
+  campaign,
+  cost_usd,
+  impressions,
+  clicks,
+  'meta_ads' AS source_system
+FROM raw_meta_ads
+WHERE date IS NOT NULL
+  AND channel IS NOT NULL
+  AND cost_usd IS NOT NULL

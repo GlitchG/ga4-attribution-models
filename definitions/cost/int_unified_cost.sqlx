@@ -1,0 +1,61 @@
+config {
+  type: "table",
+  schema: "cost",
+  tags: ["cost"],
+  description: "Unified daily cost table combining all paid media sources. One row per date × channel × campaign. Normalised for direct joining with attribution output.",
+  disabled: true,
+  dependencies: [
+    "stg_google_ads_cost",
+    "stg_meta_ads_cost",
+    "stg_other_cost"
+  ],
+  columns: {
+    date: "Report date",
+    channel: "Normalised channel name matching attribution_models.channel",
+    campaign: "Campaign name",
+    cost_usd: "Total cost in USD",
+    impressions: "Total impressions",
+    clicks: "Total clicks",
+    ctr: "Click-through rate = clicks / impressions",
+    cpc: "Cost per click = cost_usd / clicks",
+    source_systems: "Comma-separated list of contributing platforms"
+  }
+}
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- UNIFIED COST TABLE
+-- Aggregates all cost sources to date × channel × campaign grain.
+-- If you have multiple platforms bidding for the same channel (e.g. Meta + TikTok
+-- both labelled 'Paid Social'), costs are summed.
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+WITH all_costs AS (
+  SELECT date, channel, campaign, cost_usd, impressions, clicks, source_system
+  FROM ${ref("stg_google_ads_cost")}
+  WHERE date IS NOT NULL
+
+  UNION ALL
+
+  SELECT date, channel, campaign, cost_usd, impressions, clicks, source_system
+  FROM ${ref("stg_meta_ads_cost")}
+  WHERE date IS NOT NULL
+
+  UNION ALL
+
+  SELECT date, channel, campaign, cost_usd, impressions, clicks, source_system
+  FROM ${ref("stg_other_cost")}
+  WHERE date IS NOT NULL
+)
+
+SELECT
+  date,
+  channel,
+  campaign,
+  ROUND(SUM(cost_usd), 2) AS cost_usd,
+  SUM(impressions) AS impressions,
+  SUM(clicks) AS clicks,
+  ROUND(SUM(clicks) / NULLIF(SUM(impressions), 0), 4) AS ctr,
+  ROUND(SUM(cost_usd) / NULLIF(SUM(clicks), 0), 2) AS cpc,
+  STRING_AGG(DISTINCT source_system, ', ' ORDER BY source_system) AS source_systems
+FROM all_costs
+GROUP BY date, channel, campaign

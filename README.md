@@ -153,6 +153,17 @@ Three Dataform views + setup guide for Looker Studio:
 - `funnel_dashboard.sqlx` — ecommerce funnel for funnel chart widget
 - `paths_dashboard.sqlx` — top conversion paths for tables
 
+#### Cost data and ROAS (optional)
+
+If you have ad spend in BigQuery (Google Ads, Meta, TikTok, etc.), enable the optional `definitions/cost/` module:
+
+- **ROAS** — Return on Ad Spend by channel and attribution model
+- **CPA** — Cost Per Acquisition
+- **Marginal Revenue** — Incremental value the data-driven model finds over last-click
+- **Efficiency Score** — ROAS weighted by attribution credit share
+
+See `docs/COST_MODULE_SETUP.md` for platform-specific setup (Google Ads Transfer Service, Meta API, manual CSV upload).
+
 #### Related
 
 - [bigquery-meridian-mmm](https://github.com/GlitchG/bigquery-meridian-mmm) — Bayesian MMM for incrementality

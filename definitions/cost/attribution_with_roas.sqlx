@@ -1,0 +1,112 @@
+config {
+  type: "table",
+  schema: "cost",
+  tags: ["cost", "mart"],
+  description: "Attribution results enriched with cost data: ROAS, CPA, efficiency scores, and marginal revenue. Joins attribution_mart with unified cost by date + channel. One row per model × channel × date.",
+  disabled: true,
+  dependencies: [
+    "int_unified_cost",
+    "cross_channel_comparison"
+  ],
+  columns: {
+    date: "Report date",
+    model: "Attribution model name",
+    channel: "Marketing channel",
+    attributed_conversions: "Conversions credited to this channel under the model",
+    total_credit: "Sum of attribution credit (0–1 scale)",
+    attributed_revenue_usd: "Revenue attributed to this channel",
+    cost_usd: "Total ad spend for this channel on this date",
+    roas: "Return on Ad Spend = attributed_revenue_usd / cost_usd",
+    cpa: "Cost Per Acquisition = cost_usd / attributed_conversions",
+    rpc: "Revenue Per Conversion = attributed_revenue_usd / attributed_conversions",
+    marginal_revenue: "Data-driven revenue minus last-click revenue for this channel",
+    efficiency_score: "ROAS weighted by attribution share (credit / conversions)",
+    source_systems: "Comma-separated ad platforms contributing to this channel's cost"
+  }
+}
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- ATTRIBUTION + COST = ROAS MART
+--
+-- Joins daily attribution results with daily ad spend.
+-- If cost is missing for a channel-date, ROAS and CPA are NULL (not zero),
+-- so you can distinguish "no spend" from "zero return".
+--
+-- Marginal revenue compares data-driven attribution to last-click to show
+-- incremental value discovered by the ML model.
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+WITH attribution_daily AS (
+  -- Roll attribution_mart to date × model × channel
+  SELECT
+    DATE(conversion_ts) AS date,
+    model,
+    channel,
+    COUNT(DISTINCT conversion_id) AS attributed_conversions,
+    ROUND(SUM(attribution_credit), 4) AS total_credit,
+    ROUND(SUM(purchase_revenue_in_usd), 2) AS attributed_revenue_usd
+  FROM ${ref("attribution_mart")}
+  GROUP BY DATE(conversion_ts), model, channel
+),
+
+last_click_revenue AS (
+  -- Isolate last-click revenue for marginal calculation
+  SELECT
+    DATE(conversion_ts) AS date,
+    channel,
+    SUM(purchase_revenue_in_usd) AS last_click_revenue
+  FROM ${ref("attribution_mart")}
+  WHERE model = 'last_click'
+  GROUP BY DATE(conversion_ts), channel
+),
+
+data_driven_revenue AS (
+  -- Isolate data-driven revenue for marginal calculation
+  SELECT
+    DATE(conversion_ts) AS date,
+    channel,
+    SUM(purchase_revenue_in_usd) AS dd_revenue
+  FROM ${ref("attribution_mart")}
+  WHERE model = 'data_driven'
+  GROUP BY DATE(conversion_ts), channel
+)
+
+SELECT
+  a.date,
+  a.model,
+  a.channel,
+  a.attributed_conversions,
+  a.total_credit,
+  a.attributed_revenue_usd,
+
+  -- Cost (NULL if no spend on this channel-date)
+  c.cost_usd,
+  c.impressions,
+  c.clicks,
+  c.source_systems,
+
+  -- Core efficiency metrics
+  ROUND(a.attributed_revenue_usd / NULLIF(c.cost_usd, 0), 2) AS roas,
+  ROUND(c.cost_usd / NULLIF(a.attributed_conversions, 0), 2) AS cpa,
+  ROUND(a.attributed_revenue_usd / NULLIF(a.attributed_conversions, 0), 2) AS rpc,
+
+  -- Marginal revenue: what data-driven finds vs last-click
+  ROUND(dd.dd_revenue - lc.last_click_revenue, 2) AS marginal_revenue,
+
+  -- Efficiency score: ROAS weighted by how much credit the model assigns
+  ROUND(
+    (a.attributed_revenue_usd / NULLIF(c.cost_usd, 0)) * (a.total_credit / NULLIF(a.attributed_conversions, 0)),
+    2
+  ) AS efficiency_score
+
+FROM attribution_daily a
+LEFT JOIN ${ref("int_unified_cost")} c
+  ON a.date = c.date
+  AND a.channel = c.channel
+LEFT JOIN last_click_revenue lc
+  ON a.date = lc.date
+  AND a.channel = lc.channel
+LEFT JOIN data_driven_revenue dd
+  ON a.date = dd.date
+  AND a.channel = dd.channel
+ORDER BY a.date DESC, a.channel, a.model
