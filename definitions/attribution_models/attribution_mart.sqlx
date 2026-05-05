@@ -3,7 +3,7 @@ config {
   schema: "attribution_models",
   name: "attribution_mart",
   tags: ["mart", "daily"],
-  description: "Unified attribution mart combining all model outputs with full ecommerce data for cross-model comparison and reporting. Eight models total."
+  description: "Unified attribution mart combining all model outputs with full ecommerce data for cross-model comparison and reporting. Eight models total. Supports all conversion event types."
 }
 
 -- Union all attribution models into a single table for reporting.

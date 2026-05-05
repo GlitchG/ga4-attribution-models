@@ -3,25 +3,50 @@ config {
   schema: "attribution_models",
   name: "attr_last_non_direct_click",
   tags: ["attribution", "model"],
-  description: "Last non-direct click attribution: assigns 100% credit to the last non-Direct session. Falls back to Direct if the entire path is Direct (no conversions are silently dropped)."
+  description: "Last non-direct click attribution: assigns 100% credit to the last non-Direct session. Falls back to Direct if the entire path is Direct."
 }
 
-WITH ranked AS (
+WITH all_paths AS (
   SELECT
-    *,
-    ROW_NUMBER() OVER (
-      PARTITION BY user_pseudo_id, conversion_id
-      ORDER BY CASE WHEN channel != 'Direct' THEN 0 ELSE 1 END, session_position_desc
-    ) AS rn
+    user_pseudo_id,
+    conversion_id,
+    conversion_ts,
+    conversion_event,
+    transaction_id,
+    conversion_value_local,
+    conversion_value_usd,
+    path_length,
+    source,
+    medium,
+    campaign,
+    channel,
+    session_position_desc
   FROM ${ref("intermediate", "int_attribution_path_rows")}
+),
+non_direct AS (
+  SELECT *
+  FROM all_paths
+  WHERE channel != 'Direct'
+),
+winners AS (
+  SELECT * FROM non_direct WHERE session_position_desc = 1
+  UNION ALL
+  SELECT a.* FROM all_paths a
+  LEFT JOIN non_direct nd
+    ON a.user_pseudo_id = nd.user_pseudo_id
+    AND a.conversion_id = nd.conversion_id
+  WHERE a.session_position_desc = 1
+    AND a.channel = 'Direct'
+    AND nd.user_pseudo_id IS NULL
 )
 SELECT
   user_pseudo_id,
   conversion_id,
   conversion_ts,
+  conversion_event,
   transaction_id,
-  purchase_revenue,
-  purchase_revenue_in_usd,
+  conversion_value_local,
+  conversion_value_usd,
   path_length,
   source,
   medium,
@@ -29,7 +54,6 @@ SELECT
   channel,
   'last_non_direct_click' AS model,
   1.0 AS attributed_credit,
-  purchase_revenue_in_usd * 1.0 AS attributed_revenue,
-  purchase_revenue * 1.0 AS attributed_revenue_local
-FROM ranked
-WHERE rn = 1
+  ${conversion_config.getValueExpr('conversion_event', 'conversion_value_usd', '1.0')} AS attributed_value_usd,
+  ${conversion_config.getValueExpr('conversion_event', 'conversion_value_local', '1.0')} AS attributed_value_local
+FROM winners

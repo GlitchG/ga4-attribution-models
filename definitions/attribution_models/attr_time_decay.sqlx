@@ -26,9 +26,10 @@ SELECT
   w.user_pseudo_id,
   w.conversion_id,
   w.conversion_ts,
+  w.conversion_event,
   w.transaction_id,
-  w.purchase_revenue,
-  w.purchase_revenue_in_usd,
+  w.conversion_value_local,
+  w.conversion_value_usd,
   w.path_length,
   w.source,
   w.medium,
@@ -36,8 +37,8 @@ SELECT
   w.channel,
   'time_decay' AS model,
   ROUND(w.decay_weight / s.total_weight, 4) AS attributed_credit,
-  ROUND(w.purchase_revenue_in_usd * w.decay_weight / s.total_weight, 2) AS attributed_revenue,
-  ROUND(w.purchase_revenue * w.decay_weight / s.total_weight, 2) AS attributed_revenue_local
+  ${conversion_config.getValueExpr('w.conversion_event', 'w.conversion_value_usd', 'ROUND(w.decay_weight / s.total_weight, 4)')} AS attributed_value_usd,
+  ${conversion_config.getValueExpr('w.conversion_event', 'w.conversion_value_local', 'ROUND(w.decay_weight / s.total_weight, 4)')} AS attributed_value_local
 FROM weighted w
 JOIN sums s
   ON w.user_pseudo_id = s.user_pseudo_id

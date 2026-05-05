@@ -24,8 +24,8 @@ SELECT
 
   -- Ecommerce payload
   j.transaction_id,
-  j.purchase_revenue,
-  j.purchase_revenue_in_usd,
+  j.conversion_value_local,
+  j.conversion_value_usd,
   j.total_item_quantity,
   j.shipping_value,
   j.tax_value,

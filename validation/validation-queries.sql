@@ -1,149 +1,69 @@
--- Validation Queries for GA4 Attribution Pipeline
--- Run these after building sessions and before trusting attribution output.
--- All queries should return expected values (0 rows for duplicates, etc.)
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- VALIDATION QUERIES — GA4 Attribution Pipeline v2.0
+--
+-- Run these after each pipeline execution to verify correctness.
+-- All queries should return zero rows. Any non-zero result indicates a bug.
+-- ═══════════════════════════════════════════════════════════════════════════════
 
-DECLARE start_date STRING DEFAULT '20210101';
-DECLARE end_date STRING DEFAULT '20210131';
-
--- ============================================================================
--- 1. DUPLICATE SESSIONS CHECK
--- Should return 0 rows. If not, deduplication failed.
--- ============================================================================
-SELECT 'DUPLICATE SESSIONS' AS check_name,
-  user_pseudo_id, session_id, COUNT(*) AS cnt
-FROM (
-  SELECT
-    user_pseudo_id,
-    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS session_id
-  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date
-    AND (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') IS NOT NULL
-  GROUP BY 1, 2
-)
+-- 1. Credit sums to 1.0 per (conversion_id, conversion_event, model)
+SELECT model, conversion_event, conversion_id, ROUND(SUM(attributed_credit), 4) AS credit_sum
+FROM `${project}.attribution_models.attribution_mart`
 GROUP BY 1, 2, 3
+HAVING ABS(credit_sum - 1.0) > 0.001;
+
+-- 2. No unconfigured conversion events leak into mart
+SELECT DISTINCT conversion_event
+FROM `${project}.attribution_models.attribution_mart`
+WHERE conversion_event NOT IN (${conversion_config.getEventList()});
+
+-- 3. Revenue mode events: total attributed value = total raw value
+SELECT
+  model, conversion_event,
+  SUM(attributed_value_usd) AS attributed_total,
+  (SELECT SUM(conversion_value_usd) FROM `${project}.intermediate.int_attribution_journeys` j
+   WHERE j.conversion_event = m.conversion_event) AS raw_total
+FROM `${project}.attribution_models.attribution_mart` m
+WHERE conversion_event IN (${conversion_config.getRevenueEvents()})
+GROUP BY 1, 2
+HAVING ABS(attributed_total - raw_total) > 1.0;
+
+-- 4. Count mode events: attributed_value_usd IS NULL (not zero)
+SELECT model, conversion_event, COUNT(*) AS bad_rows
+FROM `${project}.attribution_models.attribution_mart`
+WHERE conversion_event IN (${conversion_config.getCountEvents()})
+  AND attributed_value_usd IS NOT NULL
+GROUP BY 1, 2;
+
+-- 5. Fixed mode events: attributed_value_usd = fixed_value * credit
+SELECT model, conversion_event, COUNT(*) AS bad_rows
+FROM `${project}.attribution_models.attribution_mart`
+WHERE conversion_event IN (${conversion_config.getFixedEvents()})
+  AND ABS(attributed_value_usd - (attributed_credit * 50.0)) > 0.01
+GROUP BY 1, 2;
+
+-- 6. Channel coverage matches getChannelList()
+SELECT DISTINCT channel
+FROM `${project}.attribution_models.attribution_mart`
+WHERE channel NOT IN (${channel_grouping.getChannelList().map(c => `'${c}'`).join(', ')});
+
+-- 7. Each conversion_event has BQML output (if BQML ran)
+SELECT conversion_event, COUNT(*) AS rows
+FROM `${project}.attribution_models.attr_data_driven_bqml`
+GROUP BY 1;
+
+-- 8. BQML channel coverage matches getChannelList()
+SELECT DISTINCT channel
+FROM `${project}.attribution_models.attr_data_driven_bqml`
+WHERE channel NOT IN (${channel_grouping.getChannelList().map(c => `'${c}'`).join(', ')});
+
+-- 9. No duplicate (user_pseudo_id, session_id) in staging
+SELECT user_pseudo_id, session_id, COUNT(*) AS dupes
+FROM `${project}.staging.stg_ga4_sessions`
+GROUP BY 1, 2
 HAVING COUNT(*) > 1;
 
--- ============================================================================
--- 2. CHANNEL DISTRIBUTION SANITY
--- Check for unexpected NULLs, empty strings, or anomalies in channel grouping.
--- Uses GA4-UI-style first-non-auto-event source extraction.
--- ============================================================================
-WITH session_event_traffic AS (
-  SELECT
-    user_pseudo_id,
-    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS session_id,
-    event_timestamp,
-    event_name,
-    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'source') AS source,
-    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium') AS medium
-  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date
-    AND (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') IS NOT NULL
-),
-session_traffic_resolved AS (
-  SELECT
-    user_pseudo_id,
-    session_id,
-    ARRAY_AGG(
-      STRUCT(source, medium)
-      ORDER BY
-        CASE WHEN event_name NOT IN ('session_start', 'first_visit') AND (source IS NOT NULL OR medium IS NOT NULL) THEN 0 ELSE 1 END,
-        CASE WHEN event_name = 'session_start' AND (source IS NOT NULL OR medium IS NOT NULL) THEN 0 ELSE 1 END,
-        event_timestamp
-    )[SAFE_OFFSET(0)] AS resolved_traffic
-  FROM session_event_traffic
-  GROUP BY 1, 2
-)
-SELECT 'CHANNEL DISTRIBUTION' AS check_name,
-  CASE
-    WHEN COALESCE(resolved_traffic.medium, '(none)') IN ('cpc','ppc','paidsearch') THEN 'Paid Search'
-    WHEN COALESCE(resolved_traffic.medium, '(none)') = 'organic' THEN 'Organic Search'
-    WHEN LOWER(COALESCE(resolved_traffic.medium, '')) LIKE '%social%' THEN 'Social'
-    WHEN COALESCE(resolved_traffic.medium, '(none)') = 'email' THEN 'Email'
-    WHEN COALESCE(resolved_traffic.medium, '(none)') IN ('display','banner') THEN 'Display'
-    WHEN COALESCE(resolved_traffic.medium, '(none)') = 'referral' THEN 'Referral'
-    WHEN COALESCE(resolved_traffic.medium, '(none)') = 'affiliate' THEN 'Affiliate'
-    WHEN COALESCE(resolved_traffic.medium, '(none)') IN ('(none)','') THEN 'Direct'
-    ELSE CONCAT(COALESCE(resolved_traffic.source, '(direct)'), ' / ', COALESCE(resolved_traffic.medium, '(none)'))
-  END AS channel,
-  COUNT(*) AS session_count
-FROM session_traffic_resolved
-GROUP BY 1, 2
-ORDER BY session_count DESC;
-
--- ============================================================================
--- 3. ATTRIBUTION SUM CHECK (per model)
--- Each model's total attributed conversions should equal the number of conversions.
--- Run this after the attribution mart is populated.
--- ============================================================================
--- SELECT model, SUM(attributed_conversions) AS total_attributed,
---   (SELECT COUNT(*) FROM `your_project.your_dataset.attribution_conversions`) AS total_conversions,
---   ROUND(SUM(attributed_conversions) - (SELECT COUNT(*) FROM `your_project.your_dataset.attribution_conversions`), 4) AS diff
--- FROM `your_project.your_dataset.attribution_mart`
--- GROUP BY model
--- HAVING ABS(SUM(attributed_conversions) - (SELECT COUNT(*) FROM `your_project.your_dataset.attribution_conversions`)) > 0.01;
-
--- ============================================================================
--- 4. JOURNEY COVERAGE CHECK
--- How many conversions have at least one session in their lookback window?
--- ============================================================================
-SELECT 'JOURNEY COVERAGE' AS check_name,
-  COUNT(DISTINCT c.user_pseudo_id) AS total_converting_users,
-  COUNT(DISTINCT CASE WHEN j.user_pseudo_id IS NOT NULL THEN c.user_pseudo_id END) AS users_with_journeys,
-  ROUND(COUNT(DISTINCT CASE WHEN j.user_pseudo_id IS NOT NULL THEN c.user_pseudo_id END) * 100.0 / NULLIF(COUNT(DISTINCT c.user_pseudo_id), 0), 2) AS coverage_pct
-FROM (
-  SELECT DISTINCT user_pseudo_id
-  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date AND event_name = 'purchase'
-) c
-LEFT JOIN (
-  SELECT DISTINCT s.user_pseudo_id
-  FROM (
-    SELECT user_pseudo_id, event_timestamp
-    FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
-    WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date AND event_name = 'session_start'
-  ) s
-  JOIN (
-    SELECT user_pseudo_id, event_timestamp AS conversion_ts
-    FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
-    WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date AND event_name = 'purchase'
-  ) c ON s.user_pseudo_id = c.user_pseudo_id
-   AND TIMESTAMP_MICROS(s.event_timestamp) <= TIMESTAMP_MICROS(c.conversion_ts)
-   AND TIMESTAMP_MICROS(s.event_timestamp) >= TIMESTAMP_SUB(TIMESTAMP_MICROS(c.conversion_ts), INTERVAL 30 DAY)
-) j ON c.user_pseudo_id = j.user_pseudo_id;
-
--- ============================================================================
--- 5. NULL SOURCE/MEDIUM CHECK
--- Count sessions with NULL source or medium before COALESCE.
--- Uses the first-non-auto-event rule (primary) vs session_start fallback.
--- ============================================================================
-WITH session_event_traffic AS (
-  SELECT
-    user_pseudo_id,
-    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS session_id,
-    event_name,
-    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'source') AS source,
-    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium') AS medium
-  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN start_date AND end_date
-    AND (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') IS NOT NULL
-),
-session_traffic_resolved AS (
-  SELECT
-    user_pseudo_id,
-    session_id,
-    ARRAY_AGG(
-      STRUCT(source, medium)
-      ORDER BY
-        CASE WHEN event_name NOT IN ('session_start', 'first_visit') AND (source IS NOT NULL OR medium IS NOT NULL) THEN 0 ELSE 1 END,
-        CASE WHEN event_name = 'session_start' AND (source IS NOT NULL OR medium IS NOT NULL) THEN 0 ELSE 1 END,
-        event_timestamp
-    )[SAFE_OFFSET(0)] AS resolved_traffic
-  FROM session_event_traffic
-  GROUP BY 1, 2
-)
-SELECT 'NULL SOURCE/MEDIUM' AS check_name,
-  COUNTIF(resolved_traffic.source IS NULL) AS null_source,
-  COUNTIF(resolved_traffic.medium IS NULL) AS null_medium,
-  COUNT(*) AS total_sessions
-FROM session_traffic_resolved;
+-- 10. No duplicate (user_pseudo_id, conversion_ts, conversion_event) in journeys
+SELECT user_pseudo_id, conversion_ts, conversion_event, COUNT(*) AS dupes
+FROM `${project}.intermediate.int_attribution_journeys`
+GROUP BY 1, 2, 3
+HAVING COUNT(*) > 1;

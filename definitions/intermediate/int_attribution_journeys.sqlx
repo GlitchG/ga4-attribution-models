@@ -8,7 +8,7 @@ config {
     uniqueKey: ["user_pseudo_id", "conversion_ts", "conversion_event"],
     nonNull: ["user_pseudo_id", "conversion_ts", "path_length"],
     rowConditions: [
-      "purchase_revenue_in_usd >= 0",
+      "conversion_value_usd >= 0",
       "path_length >= 1",
       "ARRAY_LENGTH(path) = path_length"
     ]
@@ -108,8 +108,8 @@ agg_journeys AS (
 
     -- Ecommerce (single value per conversion)
     MAX(transaction_id) AS transaction_id,
-    MAX(purchase_revenue) AS purchase_revenue,
-    MAX(purchase_revenue_in_usd) AS purchase_revenue_in_usd,
+    MAX(purchase_revenue) AS conversion_value_local,
+    MAX(purchase_revenue_in_usd) AS conversion_value_usd,
     MAX(total_item_quantity) AS total_item_quantity,
     MAX(shipping_value) AS shipping_value,
     MAX(tax_value) AS tax_value,

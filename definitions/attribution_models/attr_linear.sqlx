@@ -10,9 +10,10 @@ SELECT
   user_pseudo_id,
   conversion_id,
   conversion_ts,
+  conversion_event,
   transaction_id,
-  purchase_revenue,
-  purchase_revenue_in_usd,
+  conversion_value_local,
+  conversion_value_usd,
   path_length,
   source,
   medium,
@@ -20,6 +21,6 @@ SELECT
   channel,
   'linear' AS model,
   ROUND(1.0 / path_length, 4) AS attributed_credit,
-  ROUND(purchase_revenue_in_usd / path_length, 2) AS attributed_revenue,
-  ROUND(purchase_revenue / path_length, 2) AS attributed_revenue_local
+  ${conversion_config.getValueExpr('conversion_event', 'conversion_value_usd', 'ROUND(1.0 / path_length, 4)')} AS attributed_value_usd,
+  ${conversion_config.getValueExpr('conversion_event', 'conversion_value_local', 'ROUND(1.0 / path_length, 4)')} AS attributed_value_local
 FROM ${ref("intermediate", "int_attribution_path_rows")}
