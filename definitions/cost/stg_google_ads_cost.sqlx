@@ -6,7 +6,7 @@ config {
   disabled: true,
   columns: {
     date: "Report date",
-    channel: "Normalised channel name (must match attribution_models.channel values)",
+    channel: "Normalised channel name (must match attribution_models.channel values: Paid Search Brand, Paid Search Non-Brand, Paid Social, Organic Social, Organic Search, Paid Video, Organic Video, Display, Email, Referral, Affiliate, Direct, Cross-network, Paid Shopping, Organic Shopping, SMS, Audio, Mobile Push)",
     campaign: "Campaign name",
     cost_usd: "Cost in USD",
     impressions: "Impressions",
@@ -24,8 +24,9 @@ config {
 --       A) Google Ads Data Transfer Service → use tables in your transfer dataset
 --       B) Supermetrics / Fivetran / custom API → use their BQ tables
 --       C) Manual CSV upload → create a native BQ table and SELECT from it
--- 3.  Map campaign names to the same channel values used in the attribution
---     pipeline (e.g. 'Paid Search', 'Paid Social', 'Display').
+  -- 3.  Map campaign names to the same channel values used in the attribution
+  --     pipeline (e.g. 'Paid Search Brand', 'Paid Search Non-Brand', 'Paid Social',
+  --     'Cross-network', 'Paid Shopping', 'Display', 'Paid Video').
 -- 4.  Ensure date format is DATE (not TIMESTAMP).
 -- ═══════════════════════════════════════════════════════════════════════════════
 
