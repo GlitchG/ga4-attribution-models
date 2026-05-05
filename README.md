@@ -103,8 +103,8 @@ These do **not** include the full ecommerce enrichment, deduplication, assertion
 - **Context enrichment** — `device_category`, `device_os`, `country`, `region`, `city`
 - **Session-based touchpoints** — source/medium from `event_params` using the first-non-auto-event rule (aligns with GA4 UI Session Acquisition, reduces drift by 5-15% on real data)
 - **Channel normalization** — 8-channel grouping via `includes/channel_grouping.js` (single source of truth)
-- **30-day lookback** — `TIMESTAMP_SUB(conversion_ts, INTERVAL 30 DAY)`
-  - **Caveat:** The `_TABLE_SUFFIX` filter in staging models truncates this lookback. If your conversion date is 2021-01-31 and `_TABLE_SUFFIX` filters to January, sessions from December 31 (within 30 days) are excluded. For exact lookback, replace `_TABLE_SUFFIX` with a date-math filter on `event_timestamp`.
+- **30-day lookback** — `TIMESTAMP_SUB(conversion_ts, INTERVAL 30 DAY)` (configured in `stg_ga4_sessions.sqlx` and `stg_ga4_conversions.sqlx`)
+  - **Caveat:** The `_TABLE_SUFFIX` filter in staging models truncates this lookback. If your conversion date is 2021-01-31 and `_TABLE_SUFFIX` filters to January, sessions from December 31 (within 30 days) are excluded. For exact lookback, replace `_TABLE_SUFFIX` with a date-math filter on `event_timestamp` in the staging models.
 - **Multi-conversion cycles** — `ROW_NUMBER()` per user, each conversion gets its own journey
 - **Ordered paths** — sessions sorted by `session_start`, with position numbering
 - **Direct traffic handling** — `IFNULL(source, '(direct)')`, non-Direct fallback logic (last-non-direct model falls back to Direct instead of dropping conversions)
@@ -128,7 +128,7 @@ The public sample uses `event_params` extraction (works on all GA4 exports). For
 
 **The google/cpc misattribution bug:** When Google Ads auto-tagging is enabled, ad clicks carry a `gclid` but no `utm_source`/`utm_medium`. Extracting from `event_params` alone shows these as `google / organic` instead of `google / cpc`, undercounting paid search by 20-40%. The `cross_channel_campaign` field resolves this by linking gclid to campaign data. For pre-2024 exports, the PROANALYTICS 15-project study found that a custom `event_params`-based script identified sources better than both the GA4 UI and early STSLC in 5 out of 6 projects.
 
-See `data-preparation/google-analytics-4-data-preparation.sql` header for detailed documentation.
+See `definitions/staging/stg_ga4_sessions.sqlx` and `definitions/staging/stg_ga4_conversions.sqlx` for the 30-day lookback implementation and the `_TABLE_SUFFIX` caveat.
 
 **Sources:** [Google GA4 Export Schema](https://support.google.com/analytics/answer/7029846), [PROANALYTICS 15-project study](https://proanalytics.team/blog/comparison-of-traffic-sources-between-ga4-and-session_traffic_source_last_click-in-bigquery), [Adswerve Traffic Flavors](https://adswerve.com/technical-insights/four-different-ga4-traffic-flavors-in-the-bigquery-export), [Hookflash GA4 Traffic Part II](https://www.hookflash.co.uk/blog/ga4-traffic-allocation-and-conversion-attribution-part-ii-ga4-bigquery)
 

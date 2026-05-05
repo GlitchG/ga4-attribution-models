@@ -22,6 +22,12 @@ WITH base_features AS (
     conversion_id,
     purchase_revenue_in_usd,
     purchase_revenue,
+    ANY_VALUE(conversion_ts) AS conversion_ts,
+    ANY_VALUE(transaction_id) AS transaction_id,
+    ANY_VALUE(path_length) AS path_length,
+    ANY_VALUE(source) AS source,
+    ANY_VALUE(medium) AS medium,
+    ANY_VALUE(campaign) AS campaign,
     MAX(CASE WHEN channel = 'Paid Search' THEN 1 ELSE 0 END) AS has_paid_search,
     MAX(CASE WHEN channel = 'Organic Search' THEN 1 ELSE 0 END) AS has_organic_search,
     MAX(CASE WHEN channel = 'Social' THEN 1 ELSE 0 END) AS has_social,
@@ -41,9 +47,15 @@ pred_all AS (
     conversion_id,
     purchase_revenue_in_usd,
     purchase_revenue,
+    conversion_ts,
+    transaction_id,
+    path_length,
+    source,
+    medium,
+    campaign,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_all
   FROM ML.PREDICT(
-    MODEL `${dataform.projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+    MODEL `marketingdataanalyst.ml.attr_data_driven_model`,
     (SELECT * FROM base_features)
   )
 ),
@@ -52,56 +64,56 @@ pred_all AS (
 removed_paid AS (
   SELECT user_pseudo_id, conversion_id, 'Paid Search' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
-  FROM ML.PREDICT(MODEL `${dataform.projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+  FROM ML.PREDICT(MODEL `marketingdataanalyst.ml.attr_data_driven_model`,
     (SELECT user_pseudo_id, conversion_id, 0 AS has_paid_search,
       has_organic_search, has_social, has_email, has_display, has_referral, has_affiliate, has_direct FROM base_features))
 ),
 removed_organic AS (
   SELECT user_pseudo_id, conversion_id, 'Organic Search' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
-  FROM ML.PREDICT(MODEL `${dataform.projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+  FROM ML.PREDICT(MODEL `marketingdataanalyst.ml.attr_data_driven_model`,
     (SELECT user_pseudo_id, conversion_id, has_paid_search, 0 AS has_organic_search,
       has_social, has_email, has_display, has_referral, has_affiliate, has_direct FROM base_features))
 ),
 removed_social AS (
   SELECT user_pseudo_id, conversion_id, 'Social' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
-  FROM ML.PREDICT(MODEL `${dataform.projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+  FROM ML.PREDICT(MODEL `marketingdataanalyst.ml.attr_data_driven_model`,
     (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, 0 AS has_social,
       has_email, has_display, has_referral, has_affiliate, has_direct FROM base_features))
 ),
 removed_email AS (
   SELECT user_pseudo_id, conversion_id, 'Email' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
-  FROM ML.PREDICT(MODEL `${dataform.projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+  FROM ML.PREDICT(MODEL `marketingdataanalyst.ml.attr_data_driven_model`,
     (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, has_social, 0 AS has_email,
       has_display, has_referral, has_affiliate, has_direct FROM base_features))
 ),
 removed_display AS (
   SELECT user_pseudo_id, conversion_id, 'Display' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
-  FROM ML.PREDICT(MODEL `${dataform.projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+  FROM ML.PREDICT(MODEL `marketingdataanalyst.ml.attr_data_driven_model`,
     (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, has_social, has_email, 0 AS has_display,
       has_referral, has_affiliate, has_direct FROM base_features))
 ),
 removed_referral AS (
   SELECT user_pseudo_id, conversion_id, 'Referral' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
-  FROM ML.PREDICT(MODEL `${dataform.projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+  FROM ML.PREDICT(MODEL `marketingdataanalyst.ml.attr_data_driven_model`,
     (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, has_social, has_email, has_display, 0 AS has_referral,
       has_affiliate, has_direct FROM base_features))
 ),
 removed_affiliate AS (
   SELECT user_pseudo_id, conversion_id, 'Affiliate' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
-  FROM ML.PREDICT(MODEL `${dataform.projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+  FROM ML.PREDICT(MODEL `marketingdataanalyst.ml.attr_data_driven_model`,
     (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, has_social, has_email, has_display, has_referral, 0 AS has_affiliate,
       has_direct FROM base_features))
 ),
 removed_direct AS (
   SELECT user_pseudo_id, conversion_id, 'Direct' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
-  FROM ML.PREDICT(MODEL `${dataform.projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+  FROM ML.PREDICT(MODEL `marketingdataanalyst.ml.attr_data_driven_model`,
     (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, has_social, has_email, has_display, has_referral, has_affiliate, 0 AS has_direct FROM base_features))
 ),
 
@@ -123,15 +135,21 @@ removal_effects AS (
     cp.channel,
     a.purchase_revenue_in_usd,
     a.purchase_revenue,
+    a.conversion_ts,
+    a.transaction_id,
+    a.path_length,
+    a.source,
+    a.medium,
+    a.campaign,
     GREATEST(a.prob_all - cp.prob_without, 0) AS removal_effect
   FROM pred_all a
   CROSS JOIN UNNEST([
     'Paid Search', 'Organic Search', 'Social', 'Email', 'Display', 'Referral', 'Affiliate', 'Direct'
-  ]) AS channels(channel)
+  ]) AS channel
   LEFT JOIN channel_predictions cp
     ON a.user_pseudo_id = cp.user_pseudo_id
     AND a.conversion_id = cp.conversion_id
-    AND channels.channel = cp.channel
+    AND channel = cp.channel
 ),
 
 sums AS (
@@ -146,14 +164,14 @@ sums AS (
 SELECT
   r.user_pseudo_id,
   r.conversion_id,
-  CAST(NULL AS TIMESTAMP) AS conversion_ts,
-  CAST(NULL AS STRING) AS transaction_id,
+  r.conversion_ts,
+  r.transaction_id,
   r.purchase_revenue,
   r.purchase_revenue_in_usd,
-  CAST(NULL AS INT64) AS path_length,
-  CAST(NULL AS STRING) AS source,
-  CAST(NULL AS STRING) AS medium,
-  CAST(NULL AS STRING) AS campaign,
+  r.path_length,
+  r.source,
+  r.medium,
+  r.campaign,
   r.channel,
   'data_driven_bqml' AS model,
   ROUND(r.removal_effect / NULLIF(s.total_effect, 0), 4) AS attributed_credit,

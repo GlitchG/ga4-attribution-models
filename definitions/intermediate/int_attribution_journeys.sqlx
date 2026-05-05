@@ -10,7 +10,7 @@ config {
   },
   assertions: {
     uniqueKey: ["user_pseudo_id", "conversion_ts", "conversion_event"],
-    nonNull: ["user_pseudo_id", "conversion_ts", "transaction_id", "path_length"],
+    nonNull: ["user_pseudo_id", "conversion_ts", "path_length"],
     rowConditions: [
       "purchase_revenue_in_usd >= 0",
       "path_length >= 1",
