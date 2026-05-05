@@ -32,7 +32,7 @@ WITH session_event_traffic AS (
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'campaign') AS campaign,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'content') AS content,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'term') AS term
-  FROM ${ref("events_*")}
+  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
   WHERE _TABLE_SUFFIX BETWEEN '${constants.START_DATE}' AND '${constants.END_DATE}'
     AND (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') IS NOT NULL
 ),
