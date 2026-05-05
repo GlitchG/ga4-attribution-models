@@ -12,7 +12,7 @@ config {
 -- For a production pipeline, also include non-converted paths (label=0)
 -- sampled from sessions that did not convert within the lookback window.
 
-CREATE OR REPLACE TABLE `${projectConfig.defaultDatabase}.ml.attr_data_driven_train` AS (
+CREATE OR REPLACE TABLE `${database()}.ml.attr_data_driven_train` AS (
   WITH channel_flags AS (
     SELECT
       user_pseudo_id,
@@ -34,7 +34,7 @@ CREATE OR REPLACE TABLE `${projectConfig.defaultDatabase}.ml.attr_data_driven_tr
 );
 
 -- Train logistic regression model
-CREATE OR REPLACE MODEL `${projectConfig.defaultDatabase}.ml.attr_data_driven_model`
+CREATE OR REPLACE MODEL `${database()}.ml.attr_data_driven_model`
 OPTIONS(
   model_type = 'LOGISTIC_REG',
   input_label_cols = ['converted'],
@@ -52,4 +52,4 @@ SELECT
   has_affiliate,
   has_direct,
   converted
-FROM `${projectConfig.defaultDatabase}.ml.attr_data_driven_train`;
+FROM `${database()}.ml.attr_data_driven_train`;

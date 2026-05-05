@@ -55,7 +55,7 @@ pred_all AS (
     campaign,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_all
   FROM ML.PREDICT(
-    MODEL `${projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+    MODEL `${database()}.ml.attr_data_driven_model`,
     (SELECT * FROM base_features)
   )
 ),
@@ -64,56 +64,56 @@ pred_all AS (
 removed_paid AS (
   SELECT user_pseudo_id, conversion_id, 'Paid Search' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
-  FROM ML.PREDICT(MODEL `${projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+  FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
     (SELECT user_pseudo_id, conversion_id, 0 AS has_paid_search,
       has_organic_search, has_social, has_email, has_display, has_referral, has_affiliate, has_direct FROM base_features))
 ),
 removed_organic AS (
   SELECT user_pseudo_id, conversion_id, 'Organic Search' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
-  FROM ML.PREDICT(MODEL `${projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+  FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
     (SELECT user_pseudo_id, conversion_id, has_paid_search, 0 AS has_organic_search,
       has_social, has_email, has_display, has_referral, has_affiliate, has_direct FROM base_features))
 ),
 removed_social AS (
   SELECT user_pseudo_id, conversion_id, 'Social' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
-  FROM ML.PREDICT(MODEL `${projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+  FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
     (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, 0 AS has_social,
       has_email, has_display, has_referral, has_affiliate, has_direct FROM base_features))
 ),
 removed_email AS (
   SELECT user_pseudo_id, conversion_id, 'Email' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
-  FROM ML.PREDICT(MODEL `${projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+  FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
     (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, has_social, 0 AS has_email,
       has_display, has_referral, has_affiliate, has_direct FROM base_features))
 ),
 removed_display AS (
   SELECT user_pseudo_id, conversion_id, 'Display' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
-  FROM ML.PREDICT(MODEL `${projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+  FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
     (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, has_social, has_email, 0 AS has_display,
       has_referral, has_affiliate, has_direct FROM base_features))
 ),
 removed_referral AS (
   SELECT user_pseudo_id, conversion_id, 'Referral' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
-  FROM ML.PREDICT(MODEL `${projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+  FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
     (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, has_social, has_email, has_display, 0 AS has_referral,
       has_affiliate, has_direct FROM base_features))
 ),
 removed_affiliate AS (
   SELECT user_pseudo_id, conversion_id, 'Affiliate' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
-  FROM ML.PREDICT(MODEL `${projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+  FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
     (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, has_social, has_email, has_display, has_referral, 0 AS has_affiliate,
       has_direct FROM base_features))
 ),
 removed_direct AS (
   SELECT user_pseudo_id, conversion_id, 'Direct' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
-  FROM ML.PREDICT(MODEL `${projectConfig.defaultDatabase}.ml.attr_data_driven_model`,
+  FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
     (SELECT user_pseudo_id, conversion_id, has_paid_search, has_organic_search, has_social, has_email, has_display, has_referral, has_affiliate, 0 AS has_direct FROM base_features))
 ),
 
