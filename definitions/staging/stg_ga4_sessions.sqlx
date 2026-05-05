@@ -3,7 +3,7 @@ config {
   schema: "staging",
   name: "stg_ga4_sessions",
   tags: ["staging"],
-  description: "Deduplicated session-level extraction from GA4 events with GA4-UI-style source/medium resolution.",
+  description: "Deduplicated session-level extraction from GA4 events with auto source/medium resolution (session_stslc > collected > event_params). Includes click IDs, page context, device, geo, and privacy fields.",
   assertions: {
     uniqueKey: ["user_pseudo_id", "session_id"],
     nonNull: ["user_pseudo_id", "session_id", "session_start", "channel"],
@@ -14,31 +14,71 @@ config {
   }
 }
 
--- GA4-UI-style first-non-auto-event source extraction with session_start fallback.
--- Aligns source/medium with the GA4 UI Session Acquisition report.
+-- Auto source extraction: session_traffic_source_last_click (post-2024-07) >
+-- collected_traffic_source (post-2023-06) > event_params first-non-auto-event (always).
+-- On older exports (e.g. public sample), falls through to event_params gracefully.
 
-WITH session_event_traffic AS (
+WITH raw_events AS (
   SELECT
     user_pseudo_id,
     (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS session_id,
     event_timestamp,
     event_name,
-    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'source') AS source,
-    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium') AS medium,
-    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'campaign') AS campaign,
-    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'content') AS content,
-    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'term') AS term
-  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN '${constants.START_DATE}' AND '${constants.END_DATE}'
+
+    -- Source/medium resolution (auto mode)
+    ${source_resolution.resolveSourceLogic(dataform.projectConfig.vars.source_extraction_mode)} AS resolved_traffic,
+
+    -- Click IDs (from collected_traffic_source if available, else event_params)
+    COALESCE(SAFE.collected_traffic_source.gclid,
+      (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'gclid')) AS gclid,
+    COALESCE(SAFE.collected_traffic_source.dclid,
+      (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'dclid')) AS dclid,
+    COALESCE(SAFE.collected_traffic_source.srsltid,
+      (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'srsltid')) AS srsltid,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'msclkid') AS msclkid,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'fbclid') AS fbclid,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'ttclid') AS ttclid,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'twclid') AS twclid,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'li_fat_id') AS li_fat_id,
+
+    -- Page context
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location') AS page_location,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_referrer') AS page_referrer,
+    SAFE.event_dimensions.hostname AS hostname,
+
+    -- Traffic source (user-level first touch — do NOT use for session attribution)
+    traffic_source.name AS user_first_touch_campaign,
+
+    -- Device context
+    device.category AS device_category,
+    device.operating_system AS device_os,
+    device.language AS device_language,
+    SAFE.device.web_info.browser AS browser,
+    SAFE.device.web_info.browser_version AS browser_version,
+
+    -- Geo context
+    geo.country AS country,
+    geo.region AS region,
+    geo.city AS city,
+
+    -- Privacy / consent mode v2
+    privacy_info.analytics_storage AS privacy_analytics_storage,
+    privacy_info.ads_storage AS privacy_ads_storage,
+    privacy_info.uses_transient_token AS privacy_uses_transient_token
+
+  FROM `${constants.GA4_PROJECT}.${constants.GA4_DATASET}.events_*`
+  WHERE _TABLE_SUFFIX BETWEEN
+    FORMAT_DATE('%Y%m%d', DATE_SUB(PARSE_DATE('%Y%m%d', '${constants.START_DATE}'), INTERVAL ${conversion_config.getMaxLookback()} DAY))
+    AND '${constants.END_DATE}'
     AND (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') IS NOT NULL
-),
-session_traffic_resolved AS (
-  SELECT
-    user_pseudo_id,
-    session_id,
-    ${source_resolution.sourceResolutionLogic()} AS resolved_traffic
-  FROM session_event_traffic
-  GROUP BY 1, 2
+    {% if dataform.projectConfig.vars.exclude_modeled_events == "true" %}
+    AND COALESCE(privacy_info.uses_transient_token, 'No') != 'Yes'
+    {% endif %}
+    AND TIMESTAMP_MICROS(event_timestamp) >= TIMESTAMP_SUB(
+      TIMESTAMP(PARSE_DATE('%Y%m%d', '${constants.START_DATE}')),
+      INTERVAL ${conversion_config.getMaxLookback()} DAY
+    )
+    AND TIMESTAMP_MICROS(event_timestamp) <= TIMESTAMP(PARSE_DATE('%Y%m%d', '${constants.END_DATE}'))
 ),
 deduped_sessions AS (
   SELECT
@@ -50,9 +90,32 @@ deduped_sessions AS (
     COALESCE(resolved_traffic.campaign, '') AS campaign,
     COALESCE(resolved_traffic.content, '') AS content,
     COALESCE(resolved_traffic.term, '') AS term,
-    ${channel_grouping.channelGrouping('resolved_traffic.medium', 'resolved_traffic.source')} AS channel,
+    ${channel_grouping.channelGrouping('resolved_traffic.medium', 'resolved_traffic.source', 'resolved_traffic.campaign')} AS channel,
+    gclid,
+    dclid,
+    srsltid,
+    msclkid,
+    fbclid,
+    ttclid,
+    twclid,
+    li_fat_id,
+    page_location,
+    page_referrer,
+    hostname,
+    user_first_touch_campaign,
+    device_category,
+    device_os,
+    device_language,
+    browser,
+    browser_version,
+    country,
+    region,
+    city,
+    privacy_analytics_storage,
+    privacy_ads_storage,
+    privacy_uses_transient_token,
     ROW_NUMBER() OVER (PARTITION BY user_pseudo_id, session_id ORDER BY resolved_traffic.event_timestamp) AS rn
-  FROM session_traffic_resolved
+  FROM raw_events
 )
 SELECT
   user_pseudo_id,
@@ -63,6 +126,29 @@ SELECT
   campaign,
   content,
   term,
-  channel
+  channel,
+  gclid,
+  dclid,
+  srsltid,
+  msclkid,
+  fbclid,
+  ttclid,
+  twclid,
+  li_fat_id,
+  page_location,
+  page_referrer,
+  hostname,
+  user_first_touch_campaign,
+  device_category,
+  device_os,
+  device_language,
+  browser,
+  browser_version,
+  country,
+  region,
+  city,
+  privacy_analytics_storage,
+  privacy_ads_storage,
+  privacy_uses_transient_token
 FROM deduped_sessions
 WHERE rn = 1

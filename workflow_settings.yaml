@@ -9,3 +9,5 @@ vars:
   ga4_project: "bigquery-public-data"
   ga4_dataset: "ga4_obfuscated_sample_ecommerce"
   lookback_days: "30"
+  source_extraction_mode: "auto"
+  exclude_modeled_events: "false"
