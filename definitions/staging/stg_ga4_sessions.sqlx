@@ -3,20 +3,23 @@ config {
   schema: "staging",
   name: "stg_ga4_sessions",
   tags: ["staging"],
-  description: "Deduplicated session-level extraction from GA4 events with auto source/medium resolution (session_stslc > collected > event_params). Includes click IDs, page context, device, geo, and privacy fields.",
-  assertions: {
-    uniqueKey: ["user_pseudo_id", "session_id"],
-    nonNull: ["user_pseudo_id", "session_id", "session_start", "channel"],
-    rowConditions: [
-      "session_start >= TIMESTAMP('2020-01-01')",
-      "channel != ''"
-    ]
+  description: "Deduplicated session-level extraction from GA4 events. Source/medium resolution mode is controlled by the source_extraction_mode var: event_params (default, works on all exports), session_stslc (post-2024-07), collected (post-2023-06), or auto (COALESCE chain — requires export to have the newer fields).",
+  columns: {
+    user_pseudo_id: "GA4 user pseudo ID",
+    session_id: "ga_session_id from event_params",
+    session_start: "First event timestamp in the session",
+    source: "Traffic source",
+    medium: "Traffic medium",
+    campaign: "Campaign name",
+    content: "Ad content",
+    term: "Search term",
+    channel: "Normalised 17-channel grouping",
+    device_category: "Device category",
+    device_os: "Device operating system",
+    country: "User country",
+    city: "User city"
   }
 }
-
--- Auto source extraction: session_traffic_source_last_click (post-2024-07) >
--- collected_traffic_source (post-2023-06) > event_params first-non-auto-event (always).
--- On older exports (e.g. public sample), falls through to event_params gracefully.
 
 WITH raw_events AS (
   SELECT
@@ -25,16 +28,13 @@ WITH raw_events AS (
     event_timestamp,
     event_name,
 
-    -- Source/medium resolution (auto mode)
-    ${source_resolution.resolveSourceLogic(dataform.projectConfig.vars.source_extraction_mode)} AS resolved_traffic,
+    -- Source/medium resolution (mode-dependent, injected at compile time)
+    ${source_resolution.getSourceResolutionFrag()}
 
-    -- Click IDs (from collected_traffic_source if available, else event_params)
-    COALESCE(SAFE.collected_traffic_source.gclid,
-      (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'gclid')) AS gclid,
-    COALESCE(SAFE.collected_traffic_source.dclid,
-      (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'dclid')) AS dclid,
-    COALESCE(SAFE.collected_traffic_source.srsltid,
-      (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'srsltid')) AS srsltid,
+    -- Click IDs (mode-dependent)
+    ${source_resolution.getClickIdFrag()}
+
+    -- Other click IDs (always from event_params)
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'msclkid') AS msclkid,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'fbclid') AS fbclid,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'ttclid') AS ttclid,
@@ -44,7 +44,7 @@ WITH raw_events AS (
     -- Page context
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location') AS page_location,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_referrer') AS page_referrer,
-    SAFE.event_dimensions.hostname AS hostname,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'hostname') AS hostname,
 
     -- Traffic source (user-level first touch — do NOT use for session attribution)
     traffic_source.name AS user_first_touch_campaign,
@@ -53,8 +53,8 @@ WITH raw_events AS (
     device.category AS device_category,
     device.operating_system AS device_os,
     device.language AS device_language,
-    SAFE.device.web_info.browser AS browser,
-    SAFE.device.web_info.browser_version AS browser_version,
+    device.web_info.browser AS browser,
+    device.web_info.browser_version AS browser_version,
 
     -- Geo context
     geo.country AS country,
@@ -71,12 +71,10 @@ WITH raw_events AS (
     FORMAT_DATE('%Y%m%d', DATE_SUB(PARSE_DATE('%Y%m%d', '${constants.START_DATE}'), INTERVAL ${conversion_config.getMaxLookback()} DAY))
     AND '${constants.END_DATE}'
     AND (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') IS NOT NULL
-    {% if dataform.projectConfig.vars.exclude_modeled_events == "true" %}
-    AND COALESCE(privacy_info.uses_transient_token, 'No') != 'Yes'
-    {% endif %}
+    ${dataform.projectConfig.vars.exclude_modeled_events === "true" ? "AND COALESCE(privacy_info.uses_transient_token, 'No') != 'Yes'" : ""}
     AND TIMESTAMP_MICROS(event_timestamp) >= TIMESTAMP_SUB(
       TIMESTAMP(PARSE_DATE('%Y%m%d', '${constants.START_DATE}')),
-      INTERVAL ${conversion_config.getMaxLookback()} DAY
+      INTERVAL ${constants.LOOKBACK_DAYS} DAY
     )
     AND TIMESTAMP_MICROS(event_timestamp) <= TIMESTAMP(PARSE_DATE('%Y%m%d', '${constants.END_DATE}'))
 ),
@@ -84,13 +82,13 @@ deduped_sessions AS (
   SELECT
     user_pseudo_id,
     session_id,
-    TIMESTAMP_MICROS(resolved_traffic.event_timestamp) AS session_start,
-    COALESCE(resolved_traffic.source, '(direct)') AS source,
-    COALESCE(resolved_traffic.medium, '(none)') AS medium,
-    COALESCE(resolved_traffic.campaign, '') AS campaign,
-    COALESCE(resolved_traffic.content, '') AS content,
-    COALESCE(resolved_traffic.term, '') AS term,
-    ${channel_grouping.channelGrouping('resolved_traffic.medium', 'resolved_traffic.source', 'resolved_traffic.campaign')} AS channel,
+    TIMESTAMP_MICROS(event_timestamp) AS session_start,
+    COALESCE(source, '(direct)') AS source,
+    COALESCE(medium, '(none)') AS medium,
+    COALESCE(campaign, '') AS campaign,
+    COALESCE(content, '') AS content,
+    COALESCE(term, '') AS term,
+    ${channel_grouping.channelGrouping('COALESCE(medium, "(none)")', 'COALESCE(source, "(direct)")', 'COALESCE(campaign, "")')} AS channel,
     gclid,
     dclid,
     srsltid,
@@ -114,7 +112,7 @@ deduped_sessions AS (
     privacy_analytics_storage,
     privacy_ads_storage,
     privacy_uses_transient_token,
-    ROW_NUMBER() OVER (PARTITION BY user_pseudo_id, session_id ORDER BY resolved_traffic.event_timestamp) AS rn
+    ROW_NUMBER() OVER (PARTITION BY user_pseudo_id, session_id ORDER BY event_timestamp) AS rn
   FROM raw_events
 )
 SELECT

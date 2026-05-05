@@ -10,6 +10,9 @@ WITH paths AS (
   SELECT
     *,
     CASE
+      WHEN path_length = 1 THEN 1.0
+      WHEN path_length = 2 AND session_position_asc = 1 THEN 0.6
+      WHEN path_length = 2 AND session_position_desc = 1 THEN 0.4
       WHEN session_position_asc = 1 THEN 0.5
       WHEN session_position_desc = 1 THEN 0.3
       ELSE 0.2 / NULLIF(path_length - 2, 0)

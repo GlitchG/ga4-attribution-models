@@ -68,6 +68,9 @@ function channelGrouping(mediumExpr, sourceExpr, campaignExpr) {
     -- 17. Direct
     WHEN COALESCE(${mediumExpr}, '(none)') IN ('(none)','') THEN 'Direct'
 
+    -- 18. Public sample anonymised values
+    WHEN COALESCE(${sourceExpr}, '') LIKE '%data deleted%' OR COALESCE(${sourceExpr}, '') LIKE '%<Other>%' THEN 'Direct'
+
     -- Catch-all
     ELSE CONCAT(COALESCE(${sourceExpr}, '(direct)'), ' / ', COALESCE(${mediumExpr}, '(none)'))
   END`;

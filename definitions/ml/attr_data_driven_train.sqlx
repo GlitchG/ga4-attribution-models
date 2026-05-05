@@ -92,6 +92,8 @@ CREATE OR REPLACE TABLE `${database()}.ml.attr_data_driven_train` AS (
   FROM negative_paths
 );
 
+DROP MODEL IF EXISTS `${database()}.ml.attr_data_driven_model`;
+
 CREATE OR REPLACE MODEL `${database()}.ml.attr_data_driven_model`
 OPTIONS(
   model_type = 'LOGISTIC_REG',

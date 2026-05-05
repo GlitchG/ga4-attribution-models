@@ -1,77 +1,77 @@
-function sourceResolutionLogic_eventParams() {
-  return `ARRAY_AGG(
-    STRUCT(source, medium, campaign, content, term, event_timestamp)
-    ORDER BY
-      CASE WHEN event_name NOT IN ('session_start', 'first_visit') AND (source IS NOT NULL OR medium IS NOT NULL) THEN 0 ELSE 1 END,
-      CASE WHEN event_name = 'session_start' AND (source IS NOT NULL OR medium IS NOT NULL) THEN 0 ELSE 1 END,
-      event_timestamp
-  )[SAFE_OFFSET(0)]`;
-}
+// Source resolution SQL fragments for stg_ga4_sessions.sqlx.
+// Mode is controlled by the source_extraction_mode var.
 
-function sourceResolutionLogic_collected() {
-  return `STRUCT(
-    collected_traffic_source.manual_source AS source,
-    collected_traffic_source.manual_medium AS medium,
-    collected_traffic_source.manual_campaign_name AS campaign,
-    collected_traffic_source.manual_content AS content,
-    collected_traffic_source.manual_term AS term,
-    event_timestamp
-  )`;
-}
-
-function sourceResolutionLogic_sessionStslc() {
-  return `STRUCT(
+function getSourceResolutionFrag() {
+  var mode = dataform.projectConfig.vars.source_extraction_mode || 'event_params';
+  if (mode === 'event_params') {
+    return `
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'source') AS source,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium') AS medium,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'campaign') AS campaign,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'content') AS content,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'term') AS term,`;
+  } else if (mode === 'session_stslc') {
+    return `
     session_traffic_source_last_click.cross_channel_campaign.source AS source,
     session_traffic_source_last_click.cross_channel_campaign.medium AS medium,
     session_traffic_source_last_click.cross_channel_campaign.campaign_name AS campaign,
     session_traffic_source_last_click.cross_channel_campaign.content AS content,
-    session_traffic_source_last_click.cross_channel_campaign.term AS term,
-    event_timestamp
-  )`;
-}
-
-function resolveSourceLogic(mode) {
-  if (mode === 'event_params') {
-    return sourceResolutionLogic_eventParams();
-  }
-  if (mode === 'collected') {
-    return sourceResolutionLogic_collected();
-  }
-  if (mode === 'session_stslc') {
-    return sourceResolutionLogic_sessionStslc();
-  }
-
-  // Auto mode: COALESCE across all three sources with priority
-  // session_stslc > collected > event_params
-  // Missing columns in older exports gracefully fall through via SAFE. prefix
-  return `STRUCT(
+    session_traffic_source_last_click.cross_channel_campaign.term AS term,`;
+  } else if (mode === 'collected') {
+    return `
+    collected_traffic_source.manual_source AS source,
+    collected_traffic_source.manual_medium AS medium,
+    collected_traffic_source.manual_campaign_name AS campaign,
+    collected_traffic_source.manual_content AS content,
+    collected_traffic_source.manual_term AS term,`;
+  } else {
+    return `
     COALESCE(
-      SAFE.session_traffic_source_last_click.cross_channel_campaign.source,
-      SAFE.collected_traffic_source.manual_source,
+      session_traffic_source_last_click.cross_channel_campaign.source,
+      collected_traffic_source.manual_source,
       (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'source')
     ) AS source,
     COALESCE(
-      SAFE.session_traffic_source_last_click.cross_channel_campaign.medium,
-      SAFE.collected_traffic_source.manual_medium,
+      session_traffic_source_last_click.cross_channel_campaign.medium,
+      collected_traffic_source.manual_medium,
       (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium')
     ) AS medium,
     COALESCE(
-      SAFE.session_traffic_source_last_click.cross_channel_campaign.campaign_name,
-      SAFE.collected_traffic_source.manual_campaign_name,
+      session_traffic_source_last_click.cross_channel_campaign.campaign_name,
+      collected_traffic_source.manual_campaign_name,
       (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'campaign')
     ) AS campaign,
     COALESCE(
-      SAFE.session_traffic_source_last_click.cross_channel_campaign.content,
-      SAFE.collected_traffic_source.manual_content,
+      session_traffic_source_last_click.cross_channel_campaign.content,
+      collected_traffic_source.manual_content,
       (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'content')
     ) AS content,
     COALESCE(
-      SAFE.session_traffic_source_last_click.cross_channel_campaign.term,
-      SAFE.collected_traffic_source.manual_term,
+      session_traffic_source_last_click.cross_channel_campaign.term,
+      collected_traffic_source.manual_term,
       (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'term')
-    ) AS term,
-    event_timestamp
-  )`;
+    ) AS term,`;
+  }
 }
 
-module.exports = { resolveSourceLogic };
+function getClickIdFrag() {
+  var mode = dataform.projectConfig.vars.source_extraction_mode || 'event_params';
+  if (mode === 'event_params' || mode === 'session_stslc') {
+    return `
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'gclid') AS gclid,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'dclid') AS dclid,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'srsltid') AS srsltid,`;
+  } else if (mode === 'collected') {
+    return `
+    collected_traffic_source.gclid AS gclid,
+    collected_traffic_source.dclid AS dclid,
+    collected_traffic_source.srsltid AS srsltid,`;
+  } else {
+    return `
+    COALESCE(collected_traffic_source.gclid, (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'gclid')) AS gclid,
+    COALESCE(collected_traffic_source.dclid, (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'dclid')) AS dclid,
+    COALESCE(collected_traffic_source.srsltid, (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'srsltid')) AS srsltid,`;
+  }
+}
+
+module.exports = { getSourceResolutionFrag, getClickIdFrag };
