@@ -43,7 +43,7 @@ WITH conversion_sessions AS (
     c.tax_value,
     c.refund_value,
     c.unique_items,
-    c.coupon,
+    -- c.coupon,  -- not available in public dataset; uncomment when migrating to private GA4 export
     c.items,
     c.event_value,
     c.event_currency,
@@ -106,7 +106,7 @@ agg_journeys AS (
     MAX(tax_value) AS tax_value,
     MAX(refund_value) AS refund_value,
     MAX(unique_items) AS unique_items,
-    MAX(coupon) AS coupon,
+    -- MAX(coupon) AS coupon,  -- not available in public dataset
     ANY_VALUE(items) AS items,
     MAX(event_value) AS event_value,
     MAX(event_currency) AS event_currency,

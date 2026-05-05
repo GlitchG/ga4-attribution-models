@@ -14,7 +14,7 @@ config {
     nonNull: ["user_pseudo_id", "conversion_ts", "conversion_event"],
     rowConditions: [
       "purchase_revenue_in_usd >= 0",
-      "event_timestamp > 0"
+      "conversion_ts IS NOT NULL"
     ]
   }
 }
@@ -39,7 +39,6 @@ WITH raw_conversions AS (
     ecommerce.tax_value,
     ecommerce.refund_value,
     ecommerce.unique_items,
-    ecommerce.coupon,
     items,
 
     -- Event params
@@ -89,7 +88,6 @@ SELECT
   tax_value,
   refund_value,
   unique_items,
-  coupon,
   items,
   event_value,
   event_currency,
