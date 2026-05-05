@@ -1,13 +1,12 @@
 config {
-  type: "incremental",
+  type: "table",
   schema: "staging",
   name: "stg_ga4_conversions",
-  tags: ["staging", "daily"],
+  tags: ["staging"],
   description: "Deduplicated conversion events from GA4 with full ecommerce payload.",
   bigquery: {
     partitionBy: "DATE(conversion_ts)",
-    clusterBy: ["user_pseudo_id", "conversion_event"],
-    updatePartitionFilter: "conversion_ts >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 3 DAY)"
+    clusterBy: ["user_pseudo_id", "conversion_event"]
   },
   assertions: {
     uniqueKey: ["user_pseudo_id", "conversion_ts", "conversion_event", "transaction_id"],
@@ -58,11 +57,7 @@ WITH raw_conversions AS (
     (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS session_id
 
   FROM ${ref("events_*")}
-  WHERE _TABLE_SUFFIX
-    ${when(incremental(),
-      `BETWEEN FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY)) AND FORMAT_DATE('%Y%m%d', CURRENT_DATE())`,
-      `BETWEEN '${constants.START_DATE}' AND '${constants.END_DATE}'`
-    )}
+  WHERE _TABLE_SUFFIX BETWEEN '${constants.START_DATE}' AND '${constants.END_DATE}'
     AND event_name IN ('purchase', 'begin_checkout', 'add_to_cart', 'add_payment_info', 'add_shipping_info')
 ),
 deduped AS (
