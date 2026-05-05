@@ -3,37 +3,60 @@ config {
   schema: "ml",
   name: "attr_data_driven_train",
   tags: ["ml", "attribution"],
-  description: "Trains a BQML logistic regression model on channel presence features for data-driven attribution via feature ablation. Requires >100 conversions for stable training.",
+  description: "Trains BQML logistic regression on converted vs non-converted paths for data-driven attribution via feature ablation.",
   hasOutput: true
 }
 
--- Build feature table: one row per conversion with binary channel flags.
--- Label is always 1 (we only train on converted paths).
--- For a production pipeline, also include non-converted paths (label=0)
--- sampled from sessions that did not convert within the lookback window.
-
 CREATE OR REPLACE TABLE `${database()}.ml.attr_data_driven_train` AS (
-  WITH channel_flags AS (
+  WITH
+  -- Positive class: users who converted (channel flags from path rows)
+  positive_paths AS (
     SELECT
       user_pseudo_id,
-      conversion_id,
-      purchase_revenue_in_usd,
-      MAX(CASE WHEN channel = 'Paid Search' THEN 1 ELSE 0 END) AS has_paid_search,
+      MAX(CASE WHEN channel = 'Paid Search'    THEN 1 ELSE 0 END) AS has_paid_search,
       MAX(CASE WHEN channel = 'Organic Search' THEN 1 ELSE 0 END) AS has_organic_search,
-      MAX(CASE WHEN channel = 'Social' THEN 1 ELSE 0 END) AS has_social,
-      MAX(CASE WHEN channel = 'Email' THEN 1 ELSE 0 END) AS has_email,
-      MAX(CASE WHEN channel = 'Display' THEN 1 ELSE 0 END) AS has_display,
-      MAX(CASE WHEN channel = 'Referral' THEN 1 ELSE 0 END) AS has_referral,
-      MAX(CASE WHEN channel = 'Affiliate' THEN 1 ELSE 0 END) AS has_affiliate,
-      MAX(CASE WHEN channel = 'Direct' THEN 1 ELSE 0 END) AS has_direct,
+      MAX(CASE WHEN channel = 'Social'         THEN 1 ELSE 0 END) AS has_social,
+      MAX(CASE WHEN channel = 'Email'          THEN 1 ELSE 0 END) AS has_email,
+      MAX(CASE WHEN channel = 'Display'        THEN 1 ELSE 0 END) AS has_display,
+      MAX(CASE WHEN channel = 'Referral'       THEN 1 ELSE 0 END) AS has_referral,
+      MAX(CASE WHEN channel = 'Affiliate'      THEN 1 ELSE 0 END) AS has_affiliate,
+      MAX(CASE WHEN channel = 'Direct'         THEN 1 ELSE 0 END) AS has_direct,
       1 AS converted
     FROM ${ref("intermediate", "int_attribution_path_rows")}
-    GROUP BY 1, 2, 3
+    GROUP BY user_pseudo_id
+  ),
+  -- Negative class: users with sessions but NO conversion in the window
+  converted_users AS (
+    SELECT DISTINCT user_pseudo_id
+    FROM ${ref("staging", "stg_ga4_conversions")}
+    WHERE conversion_event = 'purchase'
+  ),
+  negative_paths AS (
+    SELECT
+      s.user_pseudo_id,
+      MAX(CASE WHEN s.channel = 'Paid Search'    THEN 1 ELSE 0 END) AS has_paid_search,
+      MAX(CASE WHEN s.channel = 'Organic Search' THEN 1 ELSE 0 END) AS has_organic_search,
+      MAX(CASE WHEN s.channel = 'Social'         THEN 1 ELSE 0 END) AS has_social,
+      MAX(CASE WHEN s.channel = 'Email'          THEN 1 ELSE 0 END) AS has_email,
+      MAX(CASE WHEN s.channel = 'Display'        THEN 1 ELSE 0 END) AS has_display,
+      MAX(CASE WHEN s.channel = 'Referral'       THEN 1 ELSE 0 END) AS has_referral,
+      MAX(CASE WHEN s.channel = 'Affiliate'      THEN 1 ELSE 0 END) AS has_affiliate,
+      MAX(CASE WHEN s.channel = 'Direct'         THEN 1 ELSE 0 END) AS has_direct,
+      0 AS converted
+    FROM ${ref("staging", "stg_ga4_sessions")} s
+    LEFT JOIN converted_users c USING (user_pseudo_id)
+    WHERE c.user_pseudo_id IS NULL
+    GROUP BY s.user_pseudo_id
   )
-  SELECT * FROM channel_flags
+  SELECT has_paid_search, has_organic_search, has_social, has_email,
+         has_display, has_referral, has_affiliate, has_direct, converted
+  FROM positive_paths
+  UNION ALL
+  SELECT has_paid_search, has_organic_search, has_social, has_email,
+         has_display, has_referral, has_affiliate, has_direct, converted
+  FROM negative_paths
 );
 
--- Train logistic regression model
 CREATE OR REPLACE MODEL `${database()}.ml.attr_data_driven_model`
 OPTIONS(
   model_type = 'LOGISTIC_REG',
@@ -42,14 +65,4 @@ OPTIONS(
   max_iterations = 50,
   data_split_method = 'NO_SPLIT'
 ) AS
-SELECT
-  has_paid_search,
-  has_organic_search,
-  has_social,
-  has_email,
-  has_display,
-  has_referral,
-  has_affiliate,
-  has_direct,
-  converted
-FROM `${database()}.ml.attr_data_driven_train`;
+SELECT * FROM `${database()}.ml.attr_data_driven_train`;

@@ -9,8 +9,7 @@ config {
     nonNull: ["user_pseudo_id", "conversion_id", "session_start", "channel"],
     rowConditions: [
       "session_position_asc >= 1",
-      "session_position_desc >= 1",
-      "session_position_asc + session_position_desc - 1 = path_length"
+      "session_position_desc >= 1"
     ]
   }
 }
