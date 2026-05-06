@@ -108,7 +108,7 @@ agg_journeys AS (
     platform,
 
     -- Ecommerce (single value per conversion)
-    MAX(transaction_id) AS transaction_id,
+    transaction_id,  -- already in GROUP BY, no aggregation needed
     MAX(purchase_revenue) AS conversion_value_local,
     MAX(purchase_revenue_in_usd) AS conversion_value_usd,
     MAX(total_item_quantity) AS total_item_quantity,
