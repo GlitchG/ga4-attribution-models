@@ -52,7 +52,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 - **`int_attribution_journeys.sqlx`** — removed hardcoded `WHERE conversion_event = 'purchase'` filter. All conversion events now produce independent journeys.
 - **`stg_ga4_conversions.sqlx`** — uses dynamic `getEventList()` from `conversion_config.js` instead of hardcoded event names.
-- **BQML training** — updated to 17-channel flags + `conversion_event` as categorical feature.
+- **BQML training** — updated to 17-channel flags (conversion_event intentionally excluded per decision #3).
 - **BQML predictions** — 17 ablation CTEs replacing 8 hardcoded channels.
 
 ## [1.5.0] — 2026-05-05

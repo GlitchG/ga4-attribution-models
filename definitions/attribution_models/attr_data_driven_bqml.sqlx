@@ -8,9 +8,10 @@ config {
 }
 
 -- Feature-ablation data-driven attribution using BQML logistic regression.
--- Single model trained on all conversion events with conversion_event as categorical feature.
--- NOTE: If signal mixing across funnel stages causes problems, refactor to
--- per-conversion-event models in v2.1. See CHANGELOG v2.0 decision #3.
+-- Single model trained on all conversion events with 17 channel flags only.
+-- conversion_event is intentionally excluded as a feature to avoid signal mixing
+-- across funnel stages (see CHANGELOG v2.0 decision #3). Per-conversion-event
+-- split deferred to v2.1 if needed.
 
 WITH base_features AS (
   SELECT
