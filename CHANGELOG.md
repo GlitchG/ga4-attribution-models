@@ -7,7 +7,7 @@ All notable changes to this project are documented in this file.
 ### Locked decisions (v2.0 architecture)
 1. **Target export:** Public sample by default; auto-detection of source extraction mode for private client GA4 exports.
 2. **Conversion scope:** Purchases, leads, signups, micro-conversions. Three value modes: `revenue`, `fixed`, `count`.
-3. **BQML approach:** Single model with 17 channel flags only. `conversion_event` intentionally excluded as a feature to avoid signal mixing across funnel stages (e.g. purchase vs add_to_cart have very different channel effects). Per-conversion-event split deferred to v2.1 if needed.
+3. **BQML approach:** Single model with 19 channel flags only. `conversion_event` intentionally excluded as a feature to avoid signal mixing across funnel stages (e.g. purchase vs add_to_cart have very different channel effects). Per-conversion-event split deferred to v2.1 if needed.
 4. **Schema stability:** Breaking renames locked now (`purchase_revenue_in_usd` → `conversion_value_usd`, etc.). No downstream consumers assumed.
 5. **Markov model:** Out of scope for v2.0. Deferred to v2.1.
 6. **Lookback truncation fix:** `_TABLE_SUFFIX` replaced with `event_timestamp`-based filtering for exact lookback windows.
@@ -24,18 +24,18 @@ All notable changes to this project are documented in this file.
   - Priority 1: `session_traffic_source_last_click` (post-2024-07 exports — fixes google/cpc bug)
   - Priority 2: `collected_traffic_source` (post-2023-06 exports — event-level raw values)
   - Priority 3: `event_params` first-non-auto-event rule (fallback for all exports incl. public sample)
-- **Expanded 17-channel taxonomy** — replaces 8-channel grouping:
+- **Expanded 19-channel taxonomy** — replaces 8-channel grouping:
   - Cross-network, Paid Search Brand, Paid Search Non-Brand, Paid Shopping, Paid Social,
     Paid Video, Display, Organic Search, Organic Shopping, Organic Social, Organic Video,
-    Email, SMS, Affiliate, Audio, Mobile Push, Referral, Direct
+    Email, SMS, Affiliate, Audio, Mobile Push, Referral, Direct, Unknown
 - **Deep UTM + click ID passthrough** — all session fields now flow through to attribution models:
   - Click IDs: gclid, dclid, srsltid, msclkid, fbclid, ttclid, twclid, li_fat_id
   - Page context: page_location, page_referrer, hostname
   - Device: browser, browser_version
   - Privacy: analytics_storage, ads_storage, uses_transient_token
 - **`exclude_modeled_events` var** — set to `"true"` to exclude consent-mode v2 modeled events from analysis.
-- **`BRAND_TERMS_REGEX`** in `includes/constants.js` — edit per client to split Paid Search into Brand vs Non-Brand.
-- **`source_extraction_mode` var** — explicit modes: `auto` (default), `session_stslc`, `collected`, `event_params`.
+- **`brand_terms_regex` var** — per-client override for Paid Search Brand vs Non-Brand split (no code edits needed).
+- **`source_extraction_mode` var** — explicit modes: `auto`, `session_stslc`, `collected`, `event_params`.
 - **`validation/validation-queries.sql`** — 10 validation checks for post-run verification.
 - **`getChannelList()`** in `includes/channel_grouping.js` — single source of truth for BQML feature engineering.
 
@@ -52,8 +52,8 @@ All notable changes to this project are documented in this file.
 ### Fixed
 - **`int_attribution_journeys.sqlx`** — removed hardcoded `WHERE conversion_event = 'purchase'` filter. All conversion events now produce independent journeys.
 - **`stg_ga4_conversions.sqlx`** — uses dynamic `getEventList()` from `conversion_config.js` instead of hardcoded event names.
-- **BQML training** — updated to 17-channel flags (conversion_event intentionally excluded per decision #3).
-- **BQML predictions** — 17 ablation CTEs replacing 8 hardcoded channels.
+- **BQML training** — updated to 19-channel flags (conversion_event intentionally excluded per decision #3).
+- **BQML predictions** — 19 ablation CTEs replacing 8 hardcoded channels.
 
 ## [1.5.0] — 2026-05-05
 
@@ -80,7 +80,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 - **Complete Dataform project structure** (`workflow_settings.yaml`, `definitions/`, `includes/`).
-- **`dataformCoreVersion: 3.0.20`** — pins to Dataform Core 3.x.
+- **`dataformCoreVersion: 3.0.55`** — pins to Dataform Core 3.x.
 - **`stg_ga4_conversions`** — staging table with FULL ecommerce payload: `purchase_revenue`, `purchase_revenue_in_usd`, `total_item_quantity`, `transaction_id`, `shipping_value`, `tax_value`, `refund_value`, `unique_items`, `coupon`, `items` array, `event_value`, `event_currency`, `event_quantity`, plus device and geo context (`device_category`, `device_os`, `country`, `region`, `city`).
 - **`int_attribution_journeys`** — deduplicated journey table: one row per conversion with no duplicate sessions, no duplicate conversions, and an ordered `ARRAY<STRUCT>` path.
 - **`int_attribution_path_rows`** — row-level unnested paths with `session_position_asc` and `session_position_desc` for model consumption.

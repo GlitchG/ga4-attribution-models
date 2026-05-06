@@ -3,7 +3,7 @@ config {
   schema: "ecommerce_funnel",
   name: "cart_abandonment",
   tags: ["funnel", "daily"],
-  description: "Cart abandonment analysis: users who added to cart but did not complete purchase within the same session."
+  description: "Cart abandonment analysis — session-scoped: users who added to cart in a session but did not complete purchase in that same session. NOTE: a user who adds to cart in session A and purchases in session B is counted as abandoned here. For user-level abandonment, join on user_pseudo_id only (omit conversion_session_id).",
 }
 
 WITH cart_sessions AS (

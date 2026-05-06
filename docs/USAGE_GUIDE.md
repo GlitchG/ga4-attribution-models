@@ -2,7 +2,7 @@
 
 **Repository:** [github.com/GlitchG/ga4-attribution-models](https://github.com/GlitchG/ga4-attribution-models)  
 **License:** MIT  
-**Dataform version:** 3.x  
+**Dataform version:** 3.0.55  
 **Last updated:** 2026-05-06
 
 ---
@@ -35,7 +35,7 @@ Unlike GA4's built-in attribution reports (which only show one model at a time a
 **What you get:**
 - Eight attribution models running on the same dataset
 - Multi-conversion support (not just purchases)
-- 17-channel taxonomy with brand vs non-brand split
+- 19-channel taxonomy with brand vs non-brand split
 - Automatic source extraction that works with any GA4 export version
 - Full ecommerce payload plus click IDs, page context, and privacy fields
 - A single mart table that feeds into Looker Studio, Tableau, or any BI tool
@@ -49,7 +49,7 @@ If you used v1.x, here is what is new:
 |---|---|---|
 | Conversion events | Hardcoded `purchase` only | Configure any event in one file |
 | Value tracking | Revenue only | Revenue, fixed value, or count only |
-| Channels | 8 | 17 (including brand split) |
+|| Channels | 8 | 19 (including brand split + Unknown) |
 | Source extraction | Manual `event_params` only | Auto mode that adapts to your export version |
 | Click IDs | None | gclid, dclid, srsltid, and more |
 | Privacy fields | None | Consent mode v2 passthrough |
@@ -213,7 +213,7 @@ const CONVERSION_EVENTS = [
 
 ### 4.2 Channel grouping (`includes/channel_grouping.js`)
 
-17-channel taxonomy:
+19-channel taxonomy:
 
 1. Cross-network
 2. Paid Search Brand
@@ -233,6 +233,7 @@ const CONVERSION_EVENTS = [
 16. Mobile Push
 17. Referral
 18. Direct
+19. Unknown
 
 **Brand vs Non-Brand split:** Edit `BRAND_TERMS_REGEX` in `includes/constants.js`:
 
@@ -251,7 +252,7 @@ vars:
 
 | Mode | Use when | Description |
 |---|---|---|
-| `event_params` (default) | Any export | Extracts source/medium from event-level `event_params`. Works on all GA4 exports. |
+|| `event_params` (effective default) | Any export | Extracts source/medium from event-level `event_params`. Works on all GA4 exports. |
 | `session_stslc` | Post-2024-07 exports | Uses `session_traffic_source_last_click` (GA4 UI-native logic). |
 | `collected` | Post-2023-06 exports | Uses `collected_traffic_source` (manual override values). |
 | `auto` | Post-2024-07 exports | `COALESCE(session_stslc, collected, event_params)` — falls through gracefully. |
@@ -408,7 +409,8 @@ LIMIT 10;
 | `attr_last_non_direct_click` | Last touch, ignoring Direct | Standard Google Analytics view |
 | `attr_linear` | Equal credit to every touch | Long B2B sales cycles |
 | `attr_time_decay` | More credit to recent touches | Promotional campaigns |
-| `attr_position_based` | 40% first, 40% last, 20% middle | Balanced view |
+|| `attr_position_weighted` | 50% first, 30% last, 20% middle | Data-driven heuristic proxy |
+|| `attr_u_shape` | 40% first, 40% last, 20% middle | Balanced first/last emphasis |
 | `attr_data_driven_bqml` | ML-learned credit allocation | When you have enough data (1,000+ conversions) |
 
 ---
@@ -424,8 +426,8 @@ LIMIT 10;
 | **Last Non-Direct Click** | 100% to last non-Direct session; falls back to Direct if none | Default GA4 logic |
 | **Linear** | Equal credit to all sessions | Long consideration cycles |
 | **Time Decay** | Credit decays with 7-day half-life | Recent-touch bias |
-| **U-Shape** | 40% first, 40% last, 20% middle | Balanced first/last emphasis |
-| **Position Weighted** | 50% first, 30% last, 20% middle | Data-driven heuristic proxy |
+| **U-Shape** | 40% first, 40% last, 20% split among middle | Balanced first/last emphasis |
+| **Position Weighted** | 50% first, 30% last, 20% split among middle | Data-driven heuristic proxy |
 
 ### 7.2 Data-driven (BQML)
 
@@ -483,7 +485,7 @@ For detailed step-by-step visualisation instructions, see [`LOOKER_STUDIO_GUIDE.
    - Meta Ads (via Supermetrics, Fivetran, manual CSV, or API)
    - TikTok, LinkedIn, programmatic, influencer — any platform
 
-2. **Channel names must match** between cost tables and attribution output. The attribution pipeline produces 18 channels (see [Channel grouping](#42-channel-grouping)). Your cost data must use the **exact same names** for joins to work.
+2. **Channel names must match** between cost tables and attribution output. The attribution pipeline produces 19 channels (see [Channel grouping](#42-channel-grouping)). Your cost data must use the **exact same names** for joins to work.
 
 ### Step 1 — Enable the Cost Sources You Have
 
@@ -570,14 +572,12 @@ This is intentional — it distinguishes "no spend" from "zero return". Organic 
 
 ### 10.1 Built-in assertions
 
-The pipeline includes 6 Dataform assertions:
+The pipeline includes Dataform assertions on:
 
-1. `stg_ga4_conversions` unique key on `(user_pseudo_id, event_timestamp, event_name)`
-2. `stg_ga4_conversions` row conditions: `conversion_value_usd >= 0`, `event_timestamp` valid
-3. `int_attribution_journeys` unique key on `(user_pseudo_id, conversion_id)`
-4. `int_attribution_journeys` row conditions: `conversion_value_usd >= 0`, `path_length >= 1`
-5. `int_attribution_path_rows` unique key on `(user_pseudo_id, conversion_id, session_position_asc)`
-6. `int_attribution_path_rows` row conditions: `ARRAY_LENGTH(path) = path_length`
+- `stg_ga4_sessions` — unique key on `(user_pseudo_id, session_id)`
+- `stg_ga4_conversions` — unique key on `(user_pseudo_id, event_timestamp, event_name)`; row conditions on `conversion_value_usd >= 0`
+- `int_attribution_journeys` — unique key on `(user_pseudo_id, conversion_ts, conversion_event)`; row conditions on `conversion_value_usd >= 0`, `path_length >= 1`, `ARRAY_LENGTH(path) = path_length`
+- `int_attribution_path_rows` — unique key on `(user_pseudo_id, conversion_id, session_position_asc)`
 
 ### 10.2 Post-run validation queries
 
@@ -683,7 +683,7 @@ The public sample (`bigquery-public-data.ga4_obfuscated_sample_ecommerce`) is pr
 | `attributed_revenue` | `attributed_value_usd` | Update downstream queries |
 | `attributed_revenue_local` | `attributed_value_local` | Update downstream queries |
 | Hardcoded `purchase` filter | Dynamic `conversion_config.js` | Edit `conversion_config.js` |
-| 8 channels | 17 channels | Update cost module channel mapping |
+| 8 channels | 19 channels | Update cost module channel mapping |
 | `source_resolution.js` inline | Mode-switchable via var | Set `source_extraction_mode` |
 
 ### Migration checklist
@@ -701,7 +701,7 @@ The public sample (`bigquery-public-data.ga4_obfuscated_sample_ecommerce`) is pr
 
 ```
 includes/
-  channel_grouping.js      -- 17-channel CASE logic
+  channel_grouping.js      -- 19-channel CASE logic
   conversion_config.js     -- Conversion events + value modes
   constants.js             -- Project vars + safe defaults
   source_resolution.js     -- Source extraction mode switch

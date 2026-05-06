@@ -8,7 +8,7 @@ Eight attribution models in **Dataform** (BigQuery-native), runnable on Google's
 - Builds deduplicated ordered user journeys with `ARRAY_AGG`
 - Applies a **per-conversion-type lookback window** (configurable per event)
 - Supports **multi-conversion**: purchase, begin_checkout, add_to_cart, leads, signups — add events in one config file
-- Uses **17-channel normalization** including Paid Search Brand vs Non-Brand, Cross-network, Paid Video, Organic Shopping
+- Uses **19-channel normalization** including Paid Search Brand vs Non-Brand, Cross-network, Paid Video, Organic Shopping, Unknown
 - **Zero duplicates**: sessions deduped by `user_pseudo_id + session_id`, conversions by `user_pseudo_id + timestamp + transaction_id`, paths by journey aggregation
 - **Privacy-ready**: pass-through of consent mode v2 fields + optional modeled-events exclusion
 
@@ -56,7 +56,7 @@ definitions/
     └── attribution_with_roas.sqlx
 
 includes/
-├── channel_grouping.js                 -- 17-channel CASE logic
+├── channel_grouping.js                 -- 19-channel CASE logic
 ├── conversion_config.js                -- Conversion events + value modes
 ├── constants.js                        -- Project vars + safe defaults
 └── source_resolution.js                -- Source extraction mode switch
@@ -120,7 +120,7 @@ The pipeline defaults to the **public GA4 sample dataset** (`bigquery-public-dat
 | Models compared | 8 side-by-side | 1 at a time |
 | Conversion events | Any event, configurable | Purchase only |
 | Value modes | Revenue / fixed / count | Revenue only |
-| Channels | 17 (brand split) | 8 |
+|| Channels | 19 (brand split + Unknown) | 8 |
 | Source extraction | Auto-adapts to export version | Manual, breaks on schema changes |
 | Standalone SQL | Included | Not provided |
 | Cost / ROAS | Optional module | Not included |

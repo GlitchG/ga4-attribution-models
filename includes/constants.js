@@ -5,12 +5,12 @@ const GA4_DATASET = dataform.projectConfig.vars.ga4_dataset || "ga4_obfuscated_s
 const START_DATE = dataform.projectConfig.vars.start_date || "20201101";
 const END_DATE = dataform.projectConfig.vars.end_date || "20201220";
 const LOOKBACK_DAYS = dataform.projectConfig.vars.lookback_days || 30;
-const SOURCE_EXTRACTION_MODE = dataform.projectConfig.vars.source_extraction_mode || "auto";
+const SOURCE_EXTRACTION_MODE = dataform.projectConfig.vars.source_extraction_mode || "event_params";
 const EXCLUDE_MODELED_EVENTS = dataform.projectConfig.vars.exclude_modeled_events || "false";
 
 // Edit this regex per client. Used to split Paid Search into Brand vs Non-Brand.
 // Examples: 'mybrand|my-brand|brandcampaign' or '^BRD_'.
-const BRAND_TERMS_REGEX = 'your-brand-here|yourbrand';
+const BRAND_TERMS_REGEX = dataform.projectConfig.vars.brand_terms_regex || 'your-brand-here|yourbrand';
 
 function getModeledEventsFilter() {
   return EXCLUDE_MODELED_EVENTS === "true"

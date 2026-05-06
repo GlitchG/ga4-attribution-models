@@ -13,7 +13,7 @@ config {
     campaign: "Campaign name",
     content: "Ad content",
     term: "Search term",
-    channel: "Normalised 17-channel grouping",
+    channel: "Normalised 19-channel grouping",
     device_category: "Device category",
     device_os: "Device operating system",
     country: "User country",
@@ -61,10 +61,8 @@ WITH raw_events AS (
     geo.region AS region,
     geo.city AS city,
 
-    -- Privacy / consent mode v2
-    privacy_info.analytics_storage AS privacy_analytics_storage,
-    privacy_info.ads_storage AS privacy_ads_storage,
-    privacy_info.uses_transient_token AS privacy_uses_transient_token
+    -- Privacy / consent mode v2 (conditional — 2020 public sample lacks these fields)
+    ${source_resolution.getPrivacyFrag()}
 
   FROM `${constants.GA4_PROJECT}.${constants.GA4_DATASET}.events_*`
   WHERE _TABLE_SUFFIX BETWEEN

@@ -770,7 +770,7 @@ The `dashboard.attribution_dashboard` and `cross_channel_comparison` views query
 | Field | Type | Description |
 |-------|------|-------------|
 | `model` | Text | Attribution model name: first_click, last_click, last_non_direct_click, linear, time_decay, u_shape, position_weighted, data_driven_bqml |
-| `channel` | Text | Marketing channel (17-channel taxonomy): Cross-network, Paid Search Brand, Paid Search Non-Brand, Paid Shopping, Paid Social, Paid Video, Display, Organic Search, Organic Shopping, Organic Social, Organic Video, Email, SMS, Affiliate, Audio, Mobile Push, Referral, Direct, Unknown |
+| `channel` | Text | Marketing channel (19-channel taxonomy): Cross-network, Paid Search Brand, Paid Search Non-Brand, Paid Shopping, Paid Social, Paid Video, Display, Organic Search, Organic Shopping, Organic Social, Organic Video, Email, SMS, Affiliate, Audio, Mobile Push, Referral, Direct, Unknown |
 | `conversion_id` | Text | Globally unique conversion identifier |
 | `conversion_ts` | DateTime | Timestamp of the conversion event |
 | `conversion_event` | Text | Event name (e.g., 'purchase', 'generate_lead', 'subscribe') |

@@ -4,11 +4,11 @@ config {
   name: "attr_data_driven_bqml",
   tags: ["attribution", "model", "ml"],
   dependencies: ["attr_data_driven_train"],
-  description: "Data-driven attribution via BQML feature ablation. Trains logistic regression on channel presence, then calculates removal effect for each channel per conversion. Supports all conversion event types. NOTE: conversion_event is intentionally excluded as a model feature to avoid signal mixing (see CHANGELOG v2.0 decision #3).",
+  description: "Data-driven attribution via BQML feature ablation. Trains logistic regression on 19 channel presence flags, then calculates removal effect for each channel per conversion. Supports all conversion event types. NOTE: conversion_event is intentionally excluded as a model feature to avoid signal mixing (see CHANGELOG v2.0 decision #3).",
 }
 
 -- Feature-ablation data-driven attribution using BQML logistic regression.
--- Single model trained on all conversion events with 17 channel flags only.
+-- Single model trained on all conversion events with 19 channel flags only.
 -- conversion_event is intentionally excluded as a feature to avoid signal mixing
 -- across funnel stages (see CHANGELOG v2.0 decision #3). Per-conversion-event
 -- split deferred to v2.1 if needed.
@@ -66,11 +66,18 @@ pred_all AS (
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_all
   FROM ML.PREDICT(
     MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT * FROM base_features)
+    (SELECT
+       user_pseudo_id, conversion_id,
+       has_paid_search_brand, has_paid_search_non_brand, has_paid_social,
+       has_organic_social, has_organic_search, has_paid_video, has_organic_video,
+       has_display, has_email, has_referral, has_affiliate, has_direct,
+       has_cross_network, has_paid_shopping, has_organic_shopping, has_sms,
+       has_audio, has_mobile_push, has_unknown
+     FROM base_features)
   )
 ),
 
--- Ablation CTEs for each channel (hardcoded for 17 channels)
+-- Ablation CTEs for each channel (hardcoded for 19 channels)
 removed_paid_search_brand AS (
   SELECT user_pseudo_id, conversion_id, 'Paid Search Brand' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
@@ -300,16 +307,9 @@ removal_effects AS (
     a.campaign,
     GREATEST(a.prob_all - cp.prob_without, 0) AS removal_effect
   FROM pred_all a
-  CROSS JOIN UNNEST([
-    'Paid Search Brand', 'Paid Search Non-Brand', 'Paid Social', 'Organic Social',
-    'Organic Search', 'Paid Video', 'Organic Video', 'Display', 'Email',
-    'Referral', 'Affiliate', 'Direct', 'Cross-network', 'Paid Shopping',
-    'Organic Shopping', 'SMS', 'Audio', 'Mobile Push', 'Unknown'
-  ]) AS channel
-  LEFT JOIN channel_predictions cp
+  JOIN channel_predictions cp
     ON a.user_pseudo_id = cp.user_pseudo_id
     AND a.conversion_id = cp.conversion_id
-    AND channel = cp.channel
 ),
 
 sums AS (
@@ -335,12 +335,16 @@ credited AS (
     r.medium,
     r.campaign,
     r.channel,
-    ROUND(r.removal_effect / NULLIF(s.total_effect, 0), 4) AS credit_share
+    CASE
+      WHEN s.total_effect > 0 THEN ROUND(r.removal_effect / s.total_effect, 4)
+      -- Fallback: when no channel has positive marginal contribution, split evenly
+      ELSE ROUND(1.0 / 19.0, 4)
+    END AS credit_share
   FROM removal_effects r
   JOIN sums s
     ON r.user_pseudo_id = s.user_pseudo_id
     AND r.conversion_id = s.conversion_id
-  WHERE r.removal_effect > 0
+  WHERE r.removal_effect >= 0
 )
 
 SELECT

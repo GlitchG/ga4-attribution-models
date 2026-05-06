@@ -12,9 +12,7 @@ WITH funnel_events AS (
     conversion_session_id,
     conversion_event,
     conversion_ts,
-    purchase_revenue_in_usd,
-    COUNT(DISTINCT user_pseudo_id) OVER (PARTITION BY conversion_event) AS users_at_stage,
-    COUNT(DISTINCT conversion_session_id) OVER (PARTITION BY conversion_event) AS sessions_at_stage
+    purchase_revenue_in_usd
   FROM ${ref("staging", "stg_ga4_conversions")}
 ),
 stage_order AS (
