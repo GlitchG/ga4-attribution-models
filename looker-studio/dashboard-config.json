@@ -1,0 +1,272 @@
+{
+  "_comment": "Looker Studio Dashboard Configuration for GA4 Attribution Models v2.0. This is a structured spec — Looker Studio does not support native JSON import. Use this as: (1) a precise reference for manual recreation, (2) input for the create_dashboard.py API script, or (3) a checklist for QA.",
+  "report_meta": {
+    "name": "GA4 Attribution Models v2.0 — Cross-Model Comparison",
+    "theme": "Simple White",
+    "default_date_range": "auto",
+    "currency": "USD"
+  },
+  "data_sources": [
+    {
+      "id": "ds_cross_channel",
+      "name": "Cross Channel Comparison",
+      "connector": "BIG_QUERY",
+      "project_id": "${YOUR_PROJECT_ID}",
+      "dataset": "attribution_models",
+      "table": "cross_channel_comparison",
+      "type": "table",
+      "fields_override": {
+        "event_date": { "type": "DATE", "aggregation": "NONE" },
+        "attributed_value_usd": { "type": "NUMBER", "aggregation": "SUM" },
+        "attributed_credit": { "type": "NUMBER", "aggregation": "SUM" },
+        "attributed_conversions": { "type": "NUMBER", "aggregation": "SUM" },
+        "aov_usd": { "type": "NUMBER", "aggregation": "AVERAGE" }
+      }
+    },
+    {
+      "id": "ds_attribution_mart",
+      "name": "Attribution Mart (Row-Level)",
+      "connector": "BIG_QUERY",
+      "project_id": "${YOUR_PROJECT_ID}",
+      "dataset": "attribution_models",
+      "table": "attribution_mart",
+      "type": "table",
+      "fields_override": {
+        "conversion_ts": { "type": "DATE_TIME", "aggregation": "NONE" },
+        "attributed_value_usd": { "type": "NUMBER", "aggregation": "SUM" },
+        "attributed_credit": { "type": "NUMBER", "aggregation": "SUM" },
+        "path_length": { "type": "NUMBER", "aggregation": "AVERAGE" }
+      }
+    },
+    {
+      "id": "ds_paths",
+      "name": "Paths Dashboard",
+      "connector": "BIG_QUERY",
+      "project_id": "${YOUR_PROJECT_ID}",
+      "dataset": "dashboard",
+      "table": "paths_dashboard",
+      "type": "table"
+    },
+    {
+      "id": "ds_funnel",
+      "name": "Funnel Dashboard",
+      "connector": "BIG_QUERY",
+      "project_id": "${YOUR_PROJECT_ID}",
+      "dataset": "dashboard",
+      "table": "funnel_dashboard",
+      "type": "table"
+    },
+    {
+      "id": "ds_bqml_weights",
+      "name": "BQML Feature Weights",
+      "connector": "BIG_QUERY",
+      "project_id": "${YOUR_PROJECT_ID}",
+      "query": "SELECT * EXCEPT(model, processed_input, expected_value) FROM ML.WEIGHTS(MODEL `${YOUR_PROJECT_ID}.attribution_models.attr_data_driven_model`) ORDER BY ABS(weight) DESC",
+      "type": "custom_query"
+    }
+  ],
+  "pages": [
+    {
+      "name": "Attribution Comparison",
+      "tab_name": "Attribution",
+      "charts": [
+        {
+          "id": "chart_channel_by_model",
+          "type": "STACKED_COLUMN",
+          "title": "Channel Credit by Model",
+          "data_source": "ds_cross_channel",
+          "dimensions": ["channel"],
+          "breakdown_dimension": "model",
+          "metric": { "field": "attributed_value_usd", "aggregation": "SUM" },
+          "sort": { "field": "attributed_value_usd", "order": "DESCENDING" },
+          "filter": [],
+          "position": { "x": 0, "y": 80, "width": 600, "height": 300 },
+          "style": {
+            "legend_position": "RIGHT",
+            "show_data_labels": false,
+            "stacking": "STANDARD",
+            "axis_title_x": "Channel",
+            "axis_title_y": "Attributed Value (USD)"
+          }
+        },
+        {
+          "id": "chart_model_selector",
+          "type": "TABLE",
+          "title": "Model Summary",
+          "data_source": "ds_cross_channel",
+          "dimensions": ["model"],
+          "metrics": [
+            { "field": "attributed_value_usd", "aggregation": "SUM", "alias": "Total Value" },
+            { "field": "attributed_conversions", "aggregation": "SUM", "alias": "Conversions" },
+            { "field": "aov_usd", "aggregation": "AVERAGE", "alias": "AOV" }
+          ],
+          "sort": { "field": "attributed_value_usd", "order": "DESCENDING" },
+          "filter": [],
+          "position": { "x": 620, "y": 80, "width": 300, "height": 300 },
+          "style": {
+            "show_row_numbers": false,
+            "show_heatmap": false
+          }
+        },
+        {
+          "id": "chart_channel_scorecards",
+          "type": "SCORECARD_GRID",
+          "title": "Top Channels",
+          "data_source": "ds_cross_channel",
+          "breakdown_dimension": "channel",
+          "metric": { "field": "attributed_value_usd", "aggregation": "SUM" },
+          "limit": 6,
+          "filter": [{ "field": "model", "operator": "EQUALS", "value": "last_click" }],
+          "position": { "x": 0, "y": 400, "width": 920, "height": 120 },
+          "style": {
+            "comparison_enabled": false,
+            "sparkline_enabled": false
+          }
+        },
+        {
+          "id": "control_model_filter",
+          "type": "DROP_DOWN_LIST",
+          "title": "Filter by Model",
+          "data_source": "ds_cross_channel",
+          "dimension": "model",
+          "position": { "x": 0, "y": 20, "width": 200, "height": 40 },
+          "apply_to": ["chart_channel_by_model", "chart_channel_scorecards"]
+        }
+      ]
+    },
+    {
+      "name": "Funnel Analysis",
+      "tab_name": "Funnel",
+      "charts": [
+        {
+          "id": "chart_funnel_bar",
+          "type": "BAR",
+          "title": "Purchase Funnel",
+          "data_source": "ds_funnel",
+          "dimensions": ["funnel_step"],
+          "metric": { "field": "user_count", "aggregation": "SUM" },
+          "sort": { "field": "funnel_step_order", "order": "ASCENDING" },
+          "position": { "x": 0, "y": 80, "width": 500, "height": 300 },
+          "style": {
+            "bar_mode": "HORIZONTAL",
+            "show_data_labels": true
+          }
+        },
+        {
+          "id": "chart_dropoff_line",
+          "type": "LINE",
+          "title": "Drop-off Rate by Step",
+          "data_source": "ds_funnel",
+          "dimensions": ["funnel_step"],
+          "metric": { "field": "drop_off_rate", "aggregation": "AVERAGE" },
+          "sort": { "field": "funnel_step_order", "order": "ASCENDING" },
+          "position": { "x": 520, "y": 80, "width": 400, "height": 300 },
+          "style": {
+            "axis_title_y": "Drop-off Rate",
+            "line_style": "LINE"
+          }
+        },
+        {
+          "id": "chart_cart_abandonment",
+          "type": "SCORECARD",
+          "title": "Cart Abandonment Rate",
+          "data_source": "ds_funnel",
+          "metric": { "field": "cart_abandonment_rate", "aggregation": "AVERAGE" },
+          "position": { "x": 0, "y": 20, "width": 200, "height": 40 },
+          "style": {
+            "comparison_enabled": true,
+            "comparison_label": "Industry avg ~70%"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Path Analysis",
+      "tab_name": "Paths",
+      "charts": [
+        {
+          "id": "chart_top_paths",
+          "type": "TABLE",
+          "title": "Top Conversion Paths",
+          "data_source": "ds_paths",
+          "dimensions": ["path"],
+          "metrics": [
+            { "field": "conversion_count", "aggregation": "SUM", "alias": "Conversions" },
+            { "field": "total_value_usd", "aggregation": "SUM", "alias": "Revenue" }
+          ],
+          "sort": { "field": "conversion_count", "order": "DESCENDING" },
+          "limit": 20,
+          "position": { "x": 0, "y": 80, "width": 600, "height": 350 },
+          "style": {
+            "show_row_numbers": true
+          }
+        },
+        {
+          "id": "chart_path_length_hist",
+          "type": "COLUMN",
+          "title": "Path Length Distribution",
+          "data_source": "ds_paths",
+          "dimensions": ["path_length"],
+          "metric": { "field": "conversion_count", "aggregation": "SUM" },
+          "sort": { "field": "path_length", "order": "ASCENDING" },
+          "position": { "x": 620, "y": 80, "width": 300, "height": 350 },
+          "style": {
+            "axis_title_x": "Number of Touchpoints",
+            "axis_title_y": "Conversions"
+          }
+        }
+      ]
+    },
+    {
+      "name": "BQML Deep-Dive",
+      "tab_name": "Data-Driven ML",
+      "charts": [
+        {
+          "id": "chart_bqml_weights",
+          "type": "BAR",
+          "title": "Feature Importance (BQML Weights)",
+          "data_source": "ds_bqml_weights",
+          "dimensions": ["processed_input"],
+          "metric": { "field": "weight", "aggregation": "SUM" },
+          "sort": { "field": "weight", "order": "DESCENDING" },
+          "position": { "x": 0, "y": 80, "width": 500, "height": 300 },
+          "style": {
+            "bar_mode": "HORIZONTAL",
+            "show_data_labels": true
+          }
+        },
+        {
+          "id": "chart_model_accuracy",
+          "type": "SCORECARD",
+          "title": "Model Precision",
+          "data_source": "ds_bqml_weights",
+          "metric": { "field": "weight", "aggregation": "AVERAGE" },
+          "position": { "x": 520, "y": 80, "width": 200, "height": 100 },
+          "note": "For precision/recall, create a separate data source using ML.EVALUATE()"
+        }
+      ]
+    }
+  ],
+  "interactions": [
+    {
+      "type": "FILTER_CONTROL",
+      "source": "control_model_filter",
+      "targets": ["chart_channel_by_model", "chart_channel_scorecards"],
+      "behavior": "SINGLE_SELECT"
+    }
+  ],
+  "calculated_fields": [
+    {
+      "data_source": "ds_cross_channel",
+      "name": "roas",
+      "formula": "SUM(attributed_value_usd) / SUM(cost_usd)",
+      "type": "NUMBER"
+    },
+    {
+      "data_source": "ds_cross_channel",
+      "name": "cpa",
+      "formula": "SUM(cost_usd) / SUM(attributed_conversions)",
+      "type": "NUMBER"
+    }
+  ]
+}
