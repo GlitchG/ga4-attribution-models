@@ -4,13 +4,14 @@ config {
   name: "attr_data_driven_bqml",
   tags: ["attribution", "model", "ml"],
   dependencies: ["attr_data_driven_train"],
-  description: "Data-driven attribution via BQML feature ablation. Trains logistic regression on channel presence, then calculates removal effect for each channel per conversion. Supports all conversion event types."
+  description: "Data-driven attribution via BQML feature ablation. Trains logistic regression on channel presence, then calculates removal effect for each channel per conversion. Supports all conversion event types. NOTE: conversion_event is intentionally excluded as a model feature to avoid signal mixing (see CHANGELOG v2.0 decision #3).",
 }
 
 -- Feature-ablation data-driven attribution using BQML logistic regression.
--- Single model trained on all conversion events with conversion_event as categorical feature.
--- NOTE: If signal mixing across funnel stages causes problems, refactor to
--- per-conversion-event models in v2.1. See CHANGELOG v2.0 decision #3.
+-- Single model trained on all conversion events with 17 channel flags only.
+-- conversion_event is intentionally excluded as a feature to avoid signal mixing
+-- across funnel stages (see CHANGELOG v2.0 decision #3). Per-conversion-event
+-- split deferred to v2.1 if needed.
 
 WITH base_features AS (
   SELECT
@@ -42,7 +43,8 @@ WITH base_features AS (
     MAX(CASE WHEN channel = 'Organic Shopping' THEN 1 ELSE 0 END) AS has_organic_shopping,
     MAX(CASE WHEN channel = 'SMS' THEN 1 ELSE 0 END) AS has_sms,
     MAX(CASE WHEN channel = 'Audio' THEN 1 ELSE 0 END) AS has_audio,
-    MAX(CASE WHEN channel = 'Mobile Push' THEN 1 ELSE 0 END) AS has_mobile_push
+    MAX(CASE WHEN channel = 'Mobile Push' THEN 1 ELSE 0 END) AS has_mobile_push,
+    MAX(CASE WHEN channel = 'Unknown' THEN 1 ELSE 0 END) AS has_unknown
   FROM ${ref("intermediate", "int_attribution_path_rows")}
   GROUP BY 1, 2, 3, 4, 5
 ),
@@ -73,180 +75,190 @@ removed_paid_search_brand AS (
   SELECT user_pseudo_id, conversion_id, 'Paid Search Brand' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, 0 AS has_paid_search_brand,
+      (SELECT user_pseudo_id, conversion_id, 0 AS has_paid_search_brand,
       has_paid_search_non_brand, has_paid_social, has_organic_social, has_organic_search,
       has_paid_video, has_organic_video, has_display, has_email, has_referral, has_affiliate,
-      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push
+      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push, has_unknown
       FROM base_features))
 ),
 removed_paid_search_non_brand AS (
   SELECT user_pseudo_id, conversion_id, 'Paid Search Non-Brand' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, has_paid_search_brand, 0 AS has_paid_search_non_brand,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, 0 AS has_paid_search_non_brand,
       has_paid_social, has_organic_social, has_organic_search,
       has_paid_video, has_organic_video, has_display, has_email, has_referral, has_affiliate,
-      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push
+      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push, has_unknown
       FROM base_features))
 ),
 removed_paid_social AS (
   SELECT user_pseudo_id, conversion_id, 'Paid Social' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, has_paid_search_brand, has_paid_search_non_brand,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, has_paid_search_non_brand,
       0 AS has_paid_social, has_organic_social, has_organic_search,
       has_paid_video, has_organic_video, has_display, has_email, has_referral, has_affiliate,
-      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push
+      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push, has_unknown
       FROM base_features))
 ),
 removed_organic_social AS (
   SELECT user_pseudo_id, conversion_id, 'Organic Social' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, has_paid_search_brand, has_paid_search_non_brand,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, has_paid_search_non_brand,
       has_paid_social, 0 AS has_organic_social, has_organic_search,
       has_paid_video, has_organic_video, has_display, has_email, has_referral, has_affiliate,
-      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push
+      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push, has_unknown
       FROM base_features))
 ),
 removed_organic_search AS (
   SELECT user_pseudo_id, conversion_id, 'Organic Search' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, has_paid_search_brand, has_paid_search_non_brand,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, has_paid_search_non_brand,
       has_paid_social, has_organic_social, 0 AS has_organic_search,
       has_paid_video, has_organic_video, has_display, has_email, has_referral, has_affiliate,
-      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push
+      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push, has_unknown
       FROM base_features))
 ),
 removed_paid_video AS (
   SELECT user_pseudo_id, conversion_id, 'Paid Video' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, has_paid_search_brand, has_paid_search_non_brand,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, has_paid_search_non_brand,
       has_paid_social, has_organic_social, has_organic_search,
       0 AS has_paid_video, has_organic_video, has_display, has_email, has_referral, has_affiliate,
-      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push
+      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push, has_unknown
       FROM base_features))
 ),
 removed_organic_video AS (
   SELECT user_pseudo_id, conversion_id, 'Organic Video' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, has_paid_search_brand, has_paid_search_non_brand,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, has_paid_search_non_brand,
       has_paid_social, has_organic_social, has_organic_search,
       has_paid_video, 0 AS has_organic_video, has_display, has_email, has_referral, has_affiliate,
-      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push
+      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push, has_unknown
       FROM base_features))
 ),
 removed_display AS (
   SELECT user_pseudo_id, conversion_id, 'Display' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, has_paid_search_brand, has_paid_search_non_brand,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, has_paid_search_non_brand,
       has_paid_social, has_organic_social, has_organic_search,
       has_paid_video, has_organic_video, 0 AS has_display, has_email, has_referral, has_affiliate,
-      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push
+      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push, has_unknown
       FROM base_features))
 ),
 removed_email AS (
   SELECT user_pseudo_id, conversion_id, 'Email' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, has_paid_search_brand, has_paid_search_non_brand,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, has_paid_search_non_brand,
       has_paid_social, has_organic_social, has_organic_search,
       has_paid_video, has_organic_video, has_display, 0 AS has_email, has_referral, has_affiliate,
-      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push
+      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push, has_unknown
       FROM base_features))
 ),
 removed_referral AS (
   SELECT user_pseudo_id, conversion_id, 'Referral' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, has_paid_search_brand, has_paid_search_non_brand,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, has_paid_search_non_brand,
       has_paid_social, has_organic_social, has_organic_search,
       has_paid_video, has_organic_video, has_display, has_email, 0 AS has_referral, has_affiliate,
-      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push
+      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push, has_unknown
       FROM base_features))
 ),
 removed_affiliate AS (
   SELECT user_pseudo_id, conversion_id, 'Affiliate' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, has_paid_search_brand, has_paid_search_non_brand,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, has_paid_search_non_brand,
       has_paid_social, has_organic_social, has_organic_search,
       has_paid_video, has_organic_video, has_display, has_email, has_referral, 0 AS has_affiliate,
-      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push
+      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push, has_unknown
       FROM base_features))
 ),
 removed_direct AS (
   SELECT user_pseudo_id, conversion_id, 'Direct' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, has_paid_search_brand, has_paid_search_non_brand,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, has_paid_search_non_brand,
       has_paid_social, has_organic_social, has_organic_search,
       has_paid_video, has_organic_video, has_display, has_email, has_referral, has_affiliate,
-      0 AS has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push
+      0 AS has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push, has_unknown
       FROM base_features))
 ),
 removed_cross_network AS (
   SELECT user_pseudo_id, conversion_id, 'Cross-network' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, has_paid_search_brand, has_paid_search_non_brand,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, has_paid_search_non_brand,
       has_paid_social, has_organic_social, has_organic_search,
       has_paid_video, has_organic_video, has_display, has_email, has_referral, has_affiliate,
-      has_direct, 0 AS has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push
+      has_direct, 0 AS has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push, has_unknown
       FROM base_features))
 ),
 removed_paid_shopping AS (
   SELECT user_pseudo_id, conversion_id, 'Paid Shopping' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, has_paid_search_brand, has_paid_search_non_brand,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, has_paid_search_non_brand,
       has_paid_social, has_organic_social, has_organic_search,
       has_paid_video, has_organic_video, has_display, has_email, has_referral, has_affiliate,
-      has_direct, has_cross_network, 0 AS has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push
+      has_direct, has_cross_network, 0 AS has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push, has_unknown
       FROM base_features))
 ),
 removed_organic_shopping AS (
   SELECT user_pseudo_id, conversion_id, 'Organic Shopping' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, has_paid_search_brand, has_paid_search_non_brand,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, has_paid_search_non_brand,
       has_paid_social, has_organic_social, has_organic_search,
       has_paid_video, has_organic_video, has_display, has_email, has_referral, has_affiliate,
-      has_direct, has_cross_network, has_paid_shopping, 0 AS has_organic_shopping, has_sms, has_audio, has_mobile_push
+      has_direct, has_cross_network, has_paid_shopping, 0 AS has_organic_shopping, has_sms, has_audio, has_mobile_push, has_unknown
       FROM base_features))
 ),
 removed_sms AS (
   SELECT user_pseudo_id, conversion_id, 'SMS' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, has_paid_search_brand, has_paid_search_non_brand,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, has_paid_search_non_brand,
       has_paid_social, has_organic_social, has_organic_search,
       has_paid_video, has_organic_video, has_display, has_email, has_referral, has_affiliate,
-      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, 0 AS has_sms, has_audio, has_mobile_push
+      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, 0 AS has_sms, has_audio, has_mobile_push, has_unknown
       FROM base_features))
 ),
 removed_audio AS (
   SELECT user_pseudo_id, conversion_id, 'Audio' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, has_paid_search_brand, has_paid_search_non_brand,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, has_paid_search_non_brand,
       has_paid_social, has_organic_social, has_organic_search,
       has_paid_video, has_organic_video, has_display, has_email, has_referral, has_affiliate,
-      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, 0 AS has_audio, has_mobile_push
+      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, 0 AS has_audio, has_mobile_push, has_unknown
       FROM base_features))
 ),
 removed_mobile_push AS (
   SELECT user_pseudo_id, conversion_id, 'Mobile Push' AS channel,
     (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
   FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
-    (SELECT user_pseudo_id, conversion_id, conversion_event, has_paid_search_brand, has_paid_search_non_brand,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, has_paid_search_non_brand,
       has_paid_social, has_organic_social, has_organic_search,
       has_paid_video, has_organic_video, has_display, has_email, has_referral, has_affiliate,
-      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, 0 AS has_mobile_push
+      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, 0 AS has_mobile_push, has_unknown
+      FROM base_features))
+),
+removed_unknown AS (
+  SELECT user_pseudo_id, conversion_id, 'Unknown' AS channel,
+    (SELECT prob FROM UNNEST(predicted_converted_probs) WHERE label = 1) AS prob_without
+  FROM ML.PREDICT(MODEL `${database()}.ml.attr_data_driven_model`,
+      (SELECT user_pseudo_id, conversion_id, has_paid_search_brand, has_paid_search_non_brand,
+      has_paid_social, has_organic_social, has_organic_search,
+      has_paid_video, has_organic_video, has_display, has_email, has_referral, has_affiliate,
+      has_direct, has_cross_network, has_paid_shopping, has_organic_shopping, has_sms, has_audio, has_mobile_push, 0 AS has_unknown
       FROM base_features))
 ),
 
@@ -268,7 +280,8 @@ channel_predictions AS (
   SELECT * FROM removed_organic_shopping UNION ALL
   SELECT * FROM removed_sms UNION ALL
   SELECT * FROM removed_audio UNION ALL
-  SELECT * FROM removed_mobile_push
+  SELECT * FROM removed_mobile_push UNION ALL
+  SELECT * FROM removed_unknown
 ),
 
 removal_effects AS (
@@ -291,7 +304,7 @@ removal_effects AS (
     'Paid Search Brand', 'Paid Search Non-Brand', 'Paid Social', 'Organic Social',
     'Organic Search', 'Paid Video', 'Organic Video', 'Display', 'Email',
     'Referral', 'Affiliate', 'Direct', 'Cross-network', 'Paid Shopping',
-    'Organic Shopping', 'SMS', 'Audio', 'Mobile Push'
+    'Organic Shopping', 'SMS', 'Audio', 'Mobile Push', 'Unknown'
   ]) AS channel
   LEFT JOIN channel_predictions cp
     ON a.user_pseudo_id = cp.user_pseudo_id
@@ -306,27 +319,45 @@ sums AS (
     SUM(removal_effect) AS total_effect
   FROM removal_effects
   GROUP BY 1, 2
+),
+
+credited AS (
+  SELECT
+    r.user_pseudo_id,
+    r.conversion_id,
+    r.conversion_ts,
+    r.conversion_event,
+    r.transaction_id,
+    r.conversion_value_local,
+    r.conversion_value_usd,
+    r.path_length,
+    r.source,
+    r.medium,
+    r.campaign,
+    r.channel,
+    ROUND(r.removal_effect / NULLIF(s.total_effect, 0), 4) AS credit_share
+  FROM removal_effects r
+  JOIN sums s
+    ON r.user_pseudo_id = s.user_pseudo_id
+    AND r.conversion_id = s.conversion_id
+  WHERE r.removal_effect > 0
 )
 
 SELECT
-  r.user_pseudo_id,
-  r.conversion_id,
-  r.conversion_ts,
-  r.conversion_event,
-  r.transaction_id,
-  r.conversion_value_local,
-  r.conversion_value_usd,
-  r.path_length,
-  r.source,
-  r.medium,
-  r.campaign,
-  r.channel,
+  user_pseudo_id,
+  conversion_id,
+  conversion_ts,
+  conversion_event,
+  transaction_id,
+  conversion_value_local,
+  conversion_value_usd,
+  path_length,
+  source,
+  medium,
+  campaign,
+  channel,
   'data_driven_bqml' AS model,
-  ROUND(r.removal_effect / NULLIF(s.total_effect, 0), 4) AS attributed_credit,
-  ${conversion_config.getValueExpr('r.conversion_event', 'r.conversion_value_usd', 'ROUND(r.removal_effect / NULLIF(s.total_effect, 0), 4)')} AS attributed_value_usd,
-  ${conversion_config.getValueExpr('r.conversion_event', 'r.conversion_value_local', 'ROUND(r.removal_effect / NULLIF(s.total_effect, 0), 4)')} AS attributed_value_local
-FROM removal_effects r
-JOIN sums s
-  ON r.user_pseudo_id = s.user_pseudo_id
-  AND r.conversion_id = s.conversion_id
-WHERE r.removal_effect > 0
+  credit_share AS attributed_credit,
+  ${conversion_config.getValueExpr('conversion_event', 'conversion_value_usd', 'credit_share')} AS attributed_value_usd,
+  ${conversion_config.getValueExpr('conversion_event', 'conversion_value_local', 'credit_share')} AS attributed_value_local
+FROM credited

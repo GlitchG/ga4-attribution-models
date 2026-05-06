@@ -23,14 +23,19 @@
    - Meta Ads (via Supermetrics, Fivetran, manual CSV, or API)
    - TikTok, LinkedIn, programmatic, influencer — any platform
 
-2. **Channel names must match** between cost tables and attribution output. The attribution pipeline produces channels like:
-   - `Paid Search`
+2. **Channel names must match** between cost tables and attribution output. The attribution pipeline produces 18 channels:
+   - `Cross-network`
+   - `Paid Search Brand`, `Paid Search Non-Brand`
+   - `Paid Shopping`
    - `Paid Social`
-   - `Organic Search`
-   - `Direct`
-   - `Referral`
-   - `Email`
+   - `Paid Video`
    - `Display`
+   - `Organic Search`, `Organic Shopping`, `Organic Social`, `Organic Video`
+   - `Email`, `SMS`
+   - `Affiliate`, `Audio`
+   - `Mobile Push`
+   - `Referral`, `Direct`
+   - `Unknown`
 
    Your cost data must use the **exact same names** for joins to work.
 
@@ -57,10 +62,12 @@ WITH raw_google_ads AS (
     PARSE_DATE('%Y%m%d', _PARTITIONDATE) AS date,
     -- Map campaign types to attribution channels
     CASE
-      WHEN campaign_advertising_channel_type = 'SEARCH' THEN 'Paid Search'
+      WHEN campaign_advertising_channel_type = 'SEARCH' THEN 'Paid Search Non-Brand'
       WHEN campaign_advertising_channel_type = 'DISPLAY' THEN 'Display'
-      WHEN campaign_advertising_channel_type = 'SHOPPING' THEN 'Paid Search'
-      ELSE 'Paid Search'
+      WHEN campaign_advertising_channel_type = 'SHOPPING' THEN 'Paid Shopping'
+      WHEN campaign_advertising_channel_type = 'VIDEO' THEN 'Paid Video'
+      WHEN campaign_advertising_channel_type = 'PERFORMANCE_MAX' THEN 'Cross-network'
+      ELSE 'Paid Search Non-Brand'
     END AS channel,
     campaign_name AS campaign,
     cost_micros / 1e6 AS cost_usd,
@@ -133,7 +140,7 @@ config {
 }
 ```
 
-This joins attribution results with cost data and computes ROAS, CPA, marginal revenue, and efficiency scores.
+This joins attribution results with cost data by `date × channel × conversion_event`, producing granular ROAS, CPA, marginal revenue, and efficiency scores per event type. The mart includes `conversion_event` and `value_mode` columns for filtering by event type (`revenue`, `fixed`, or `count`).
 
 ---
 
@@ -160,7 +167,9 @@ The `attribution_with_roas` table uses `LEFT JOIN` from attribution to cost. If 
 - `roas` → `NULL`
 - `cpa` → `NULL`
 
-This is intentional — it distinguishes "no spend" from "zero return". Organic channels (Organic Search, Direct, Referral) will naturally have `NULL` cost unless you model SEO/content costs separately.
+For count-mode conversion events (`begin_checkout`, `add_to_cart`), `roas` and `rpc` are always `NULL` regardless of cost — there is no monetary value attached to these events. Only CPA is computed for count-mode.
+
+This is intentional — it distinguishes "no spend" from "zero return". Organic channels (Organic Search, Organic Shopping, Organic Social, Organic Video, Direct, Referral) will naturally have `NULL` cost unless you model SEO/content costs separately.
 
 ---
 

@@ -8,8 +8,8 @@ config {
 
 -- Channel-level rollup comparing all attribution models.
 -- conversion_id is globally unique (user_pseudo_id + seq), but for counting
--- attributed conversions we use COUNT(DISTINCT transaction_id) which is the
--- true business key and handles cases where transaction_id may be NULL.
+-- attributed conversions we use COUNT(DISTINCT CONCAT(user_pseudo_id, '-', conversion_id))
+-- to ensure cross-user uniqueness.
 
 SELECT
   model,

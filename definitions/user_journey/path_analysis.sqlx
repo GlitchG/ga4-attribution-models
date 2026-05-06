@@ -16,7 +16,7 @@ WITH path_strings AS (
       SELECT STRING_AGG(channel, ' > ' ORDER BY session_start)
       FROM UNNEST(path)
     ) AS path_string
-  FROM `${database()}.intermediate.int_attribution_journeys`
+  FROM ${ref("intermediate", "int_attribution_journeys")}
 )
 SELECT
   path_string,

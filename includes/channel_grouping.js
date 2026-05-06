@@ -69,7 +69,7 @@ function channelGrouping(mediumExpr, sourceExpr, campaignExpr) {
     WHEN COALESCE(${mediumExpr}, '(none)') IN ('(none)','') THEN 'Direct'
 
     -- 18. Public sample anonymised values
-    WHEN COALESCE(${sourceExpr}, '') LIKE '%data deleted%' OR COALESCE(${sourceExpr}, '') LIKE '%<Other>%' THEN 'Direct'
+    WHEN COALESCE(${sourceExpr}, '') LIKE '%data deleted%' OR COALESCE(${sourceExpr}, '') LIKE '%<Other>%' THEN 'Unknown'
 
     -- Catch-all
     ELSE CONCAT(COALESCE(${sourceExpr}, '(direct)'), ' / ', COALESCE(${mediumExpr}, '(none)'))
@@ -82,7 +82,7 @@ function getChannelList() {
     'Cross-network', 'Paid Search Brand', 'Paid Search Non-Brand',
     'Paid Shopping', 'Paid Social', 'Paid Video', 'Display',
     'Organic Search', 'Organic Shopping', 'Organic Social', 'Organic Video',
-    'Email', 'SMS', 'Affiliate', 'Audio', 'Mobile Push', 'Referral', 'Direct'
+    'Email', 'SMS', 'Affiliate', 'Audio', 'Mobile Push', 'Referral', 'Direct', 'Unknown'
   ];
 }
 

@@ -7,7 +7,7 @@ All notable changes to this project are documented in this file.
 ### Locked decisions (v2.0 architecture)
 1. **Target export:** Public sample by default; auto-detection of source extraction mode for private client GA4 exports.
 2. **Conversion scope:** Purchases, leads, signups, micro-conversions. Three value modes: `revenue`, `fixed`, `count`.
-3. **BQML approach:** Single model with `conversion_event` as categorical feature. Per-conversion-event split deferred to v2.1 if needed.
+3. **BQML approach:** Single model with 17 channel flags only. `conversion_event` intentionally excluded as a feature to avoid signal mixing across funnel stages (e.g. purchase vs add_to_cart have very different channel effects). Per-conversion-event split deferred to v2.1 if needed.
 4. **Schema stability:** Breaking renames locked now (`purchase_revenue_in_usd` → `conversion_value_usd`, etc.). No downstream consumers assumed.
 5. **Markov model:** Out of scope for v2.0. Deferred to v2.1.
 6. **Lookback truncation fix:** `_TABLE_SUFFIX` replaced with `event_timestamp`-based filtering for exact lookback windows.
@@ -52,10 +52,10 @@ All notable changes to this project are documented in this file.
 ### Fixed
 - **`int_attribution_journeys.sqlx`** — removed hardcoded `WHERE conversion_event = 'purchase'` filter. All conversion events now produce independent journeys.
 - **`stg_ga4_conversions.sqlx`** — uses dynamic `getEventList()` from `conversion_config.js` instead of hardcoded event names.
-- **BQML training** — updated to 17-channel flags + `conversion_event` as categorical feature.
+- **BQML training** — updated to 17-channel flags (conversion_event intentionally excluded per decision #3).
 - **BQML predictions** — 17 ablation CTEs replacing 8 hardcoded channels.
 
-## [Unreleased] — 2026-05-05
+## [1.5.0] — 2026-05-05
 
 ### Added
 - **Optional cost module** (`definitions/cost/`) for ROAS, CPA, and marginal revenue analysis:
@@ -90,6 +90,7 @@ All notable changes to this project are documented in this file.
 - **`cross_channel_comparison.sqlx`** — channel-level aggregation with `total_revenue_usd`, `total_credit` (conversions), and `avg_order_value`.
 - **`attr_position_weighted.sqlx`** — honest relabel of the previous `data_driven` heuristic (50% first, 30% last, 20% middle).
 - **`attr_data_driven_bqml.sqlx`** — BQML logistic regression with feature-ablation removal effects. Requires `ml/attr_data_driven_train.sqlx`.
+- **Position-weighted edge cases** — 2-session paths use 60/40 split (first/last) instead of the documented 50/30/20, since there is no "middle" session to allocate 20% to. Single-session paths receive 100%. Documented in SQLX description.
 - **`includes/channel_grouping.js`** — DRY 8-channel CASE logic, single source of truth.
 - **`includes/source_resolution.js`** — DRY GA4-UI-style source resolution logic.
 - **`includes/constants.js`** — Safe defaults for all workflow vars. Eliminates compilation failures when vars are omitted.

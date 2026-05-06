@@ -3,7 +3,7 @@ config {
   schema: "attribution_models",
   name: "attr_position_weighted",
   tags: ["attribution", "model"],
-  description: "Position-weighted attribution: 50% first, 30% last, 20% middle. Heuristic data-driven proxy."
+  description: "Position-weighted attribution: 50% first, 30% last, 20% middle for 3+ session paths; 60/40 split for 2-session paths; 100% for single-session. Heuristic data-driven proxy.",
 }
 
 WITH paths AS (

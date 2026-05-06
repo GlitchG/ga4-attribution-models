@@ -12,4 +12,10 @@ const EXCLUDE_MODELED_EVENTS = dataform.projectConfig.vars.exclude_modeled_event
 // Examples: 'mybrand|my-brand|brandcampaign' or '^BRD_'.
 const BRAND_TERMS_REGEX = 'your-brand-here|yourbrand';
 
-module.exports = { GA4_PROJECT, GA4_DATASET, START_DATE, END_DATE, LOOKBACK_DAYS, SOURCE_EXTRACTION_MODE, EXCLUDE_MODELED_EVENTS, BRAND_TERMS_REGEX };
+function getModeledEventsFilter() {
+  return EXCLUDE_MODELED_EVENTS === "true"
+    ? "AND COALESCE(privacy_info.uses_transient_token, 'No') != 'Yes'"
+    : "";
+}
+
+module.exports = { GA4_PROJECT, GA4_DATASET, START_DATE, END_DATE, LOOKBACK_DAYS, SOURCE_EXTRACTION_MODE, EXCLUDE_MODELED_EVENTS, BRAND_TERMS_REGEX, getModeledEventsFilter };

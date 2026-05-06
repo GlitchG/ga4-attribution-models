@@ -5,7 +5,7 @@ config {
   tags: ["intermediate", "daily"],
   description: "Session-to-conversion journeys: one row per conversion event type, zero duplicates, ordered path arrays. Includes full ecommerce payload, UTM depth, click IDs, and privacy context.",
   assertions: {
-    uniqueKey: ["user_pseudo_id", "conversion_ts", "conversion_event"],
+    uniqueKey: ["user_pseudo_id", "conversion_ts", "conversion_event", "transaction_id"],
     nonNull: ["user_pseudo_id", "conversion_ts", "path_length"],
     rowConditions: [
       "conversion_value_usd >= 0",
@@ -91,12 +91,13 @@ WITH conversion_sessions AS (
   LEFT JOIN ${ref("staging", "stg_ga4_sessions")} s
     ON c.user_pseudo_id = s.user_pseudo_id
     AND s.session_start <= c.conversion_ts
-    AND s.session_start >= TIMESTAMP_SUB(c.conversion_ts, INTERVAL ${constants.LOOKBACK_DAYS} DAY)
+    AND TIMESTAMP_DIFF(c.conversion_ts, s.session_start, DAY) <= ${conversion_config.getLookbackCase('c.conversion_event')}
 ),
 deduped_paths AS (
   SELECT *
   FROM conversion_sessions
   WHERE session_rn = 1
+    AND session_id IS NOT NULL
 ),
 agg_journeys AS (
   SELECT
@@ -169,7 +170,7 @@ agg_journeys AS (
 
   FROM deduped_paths
   GROUP BY
-    user_pseudo_id, conversion_ts, conversion_event, event_date, platform
+    user_pseudo_id, conversion_ts, conversion_event, event_date, platform, transaction_id
 )
 SELECT
   *,

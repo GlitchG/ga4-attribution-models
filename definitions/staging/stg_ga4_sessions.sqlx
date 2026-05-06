@@ -71,7 +71,7 @@ WITH raw_events AS (
     FORMAT_DATE('%Y%m%d', DATE_SUB(PARSE_DATE('%Y%m%d', '${constants.START_DATE}'), INTERVAL ${conversion_config.getMaxLookback()} DAY))
     AND '${constants.END_DATE}'
     AND (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') IS NOT NULL
-    ${dataform.projectConfig.vars.exclude_modeled_events === "true" ? "AND COALESCE(privacy_info.uses_transient_token, 'No') != 'Yes'" : ""}
+    ${constants.getModeledEventsFilter()}
     AND TIMESTAMP_MICROS(event_timestamp) >= TIMESTAMP_SUB(
       TIMESTAMP(PARSE_DATE('%Y%m%d', '${constants.START_DATE}')),
       INTERVAL ${constants.LOOKBACK_DAYS} DAY
