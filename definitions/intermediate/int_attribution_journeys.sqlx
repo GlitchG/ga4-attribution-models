@@ -5,7 +5,7 @@ config {
   tags: ["intermediate", "daily"],
   description: "Session-to-conversion journeys: one row per conversion event type, zero duplicates, ordered path arrays. Includes full ecommerce payload, UTM depth, click IDs, and privacy context.",
   assertions: {
-    uniqueKey: ["user_pseudo_id", "conversion_ts", "conversion_event"],
+    uniqueKey: ["user_pseudo_id", "conversion_ts", "conversion_event", "transaction_id"],
     nonNull: ["user_pseudo_id", "conversion_ts", "path_length"],
     rowConditions: [
       "conversion_value_usd >= 0",
@@ -107,7 +107,7 @@ agg_journeys AS (
     platform,
 
     -- Ecommerce (single value per conversion)
-    MAX(transaction_id) AS transaction_id,
+    transaction_id,
     MAX(purchase_revenue) AS conversion_value_local,
     MAX(purchase_revenue_in_usd) AS conversion_value_usd,
     MAX(total_item_quantity) AS total_item_quantity,
@@ -165,11 +165,14 @@ agg_journeys AS (
     COUNT(*) AS path_length,
 
     -- Stable conversion_id: globally unique per user
-    ROW_NUMBER() OVER (PARTITION BY user_pseudo_id ORDER BY conversion_ts) AS user_conversion_seq
+    ROW_NUMBER() OVER (
+      PARTITION BY user_pseudo_id
+      ORDER BY conversion_ts, conversion_event, COALESCE(transaction_id, '')
+    ) AS user_conversion_seq
 
   FROM deduped_paths
   GROUP BY
-    user_pseudo_id, conversion_ts, conversion_event, event_date, platform
+    user_pseudo_id, conversion_ts, conversion_event, event_date, platform, transaction_id
 )
 SELECT
   *,

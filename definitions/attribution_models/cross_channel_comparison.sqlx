@@ -7,16 +7,14 @@ config {
 }
 
 -- Channel-level rollup comparing all attribution models.
--- conversion_id is globally unique (user_pseudo_id + seq), but for counting
--- attributed conversions we use COUNT(DISTINCT transaction_id) which is the
--- true business key and handles cases where transaction_id may be NULL.
+-- conversion_id is globally unique (user_pseudo_id + seq), so COUNT DISTINCT is sufficient.
 
 SELECT
   model,
   conversion_event,
   ${conversion_config.getValueModeCase('conversion_event')} AS value_mode,
   channel,
-  COUNT(DISTINCT CONCAT(user_pseudo_id, '-', conversion_id)) AS attributed_conversions,
+  COUNT(DISTINCT conversion_id) AS attributed_conversions,
   SUM(attributed_credit) AS total_credit,
   ROUND(SUM(attributed_value_usd), 2) AS total_value_usd,
   ROUND(SUM(attributed_value_local), 2) AS total_value_local,

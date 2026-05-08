@@ -334,12 +334,15 @@ credited AS (
     r.medium,
     r.campaign,
     r.channel,
-    ROUND(r.removal_effect / NULLIF(s.total_effect, 0), 4) AS credit_share
+    CASE
+      WHEN s.total_effect = 0 THEN ROUND(1.0 / 19, 4)
+      ELSE ROUND(r.removal_effect / s.total_effect, 4)
+    END AS credit_share
   FROM removal_effects r
   JOIN sums s
     ON r.user_pseudo_id = s.user_pseudo_id
     AND r.conversion_id = s.conversion_id
-  WHERE r.removal_effect > 0
+  WHERE r.removal_effect > 0 OR s.total_effect = 0
 )
 
 SELECT
@@ -360,3 +363,4 @@ SELECT
   ${conversion_config.getValueExpr('conversion_event', 'conversion_value_usd', 'credit_share')} AS attributed_value_usd,
   ${conversion_config.getValueExpr('conversion_event', 'conversion_value_local', 'credit_share')} AS attributed_value_local
 FROM credited
+WHERE credit_share > 0

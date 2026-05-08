@@ -3,7 +3,7 @@ config {
   schema: "dashboard",
   name: "funnel_dashboard",
   tags: ["dashboard", "daily"],
-  description: "Dashboard-ready ecommerce funnel metrics with abandonment rates."
+  description: "Dashboard-ready ecommerce funnel metrics with abandonment rates. NOTE: UNION ALL matches by column position; ensure both SELECT lists have identical column order and types."
 }
 
 SELECT
