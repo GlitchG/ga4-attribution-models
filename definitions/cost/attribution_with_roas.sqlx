@@ -81,58 +81,6 @@ data_driven_value AS (
 ),
 
 cost_daily AS (
-  SELECT
-    date,
-    channel,
-    SUM(cost_usd) AS cost_usd,
-    SUM(impressions) AS impressions,
-    SUM(clicks) AS clicks,
-    STRING_AGG(DISTINCT source_system, ', ' ORDER BY source_system) AS source_systems
-  FROM ${ref("int_unified_cost")}
-  GROUP BY date, channel
-)
-
-SELECT
-  a.date,
-  a.model,
-  a.conversion_event,
-  a.value_mode,
-  a.channel,
-  a.attributed_conversions,
-  a.total_credit,
-  a.attributed_value_usd,
-
-  -- Cost (NULL if no spend on this channel-date)
-  c.cost_usd,
-  c.impressions,
-  c.clicks,
-  c.source_systems,
-
-  -- Core efficiency metrics
-  -- ROAS is NULL for count-mode events (no monetary value)
-  CASE WHEN a.value_mode != 'count'
-    THEN ROUND(a.attributed_value_usd / NULLIF(c.cost_usd, 0), 2)
-    ELSE NULL
-  END AS roas,
-  ROUND(c.cost_usd / NULLIF(a.attributed_conversions, 0), 2) AS cpa,
-  CASE WHEN a.value_mode != 'count'
-    THEN ROUND(a.attributed_value_usd / NULLIF(a.attributed_conversions, 0), 2)
-    ELSE NULL
-  END AS rpc,
-
-  -- Marginal value: what data-driven finds vs last-click
-  ROUND(dd.dd_value - lc.last_click_value, 2) AS marginal_value,
-
-  -- Efficiency score: ROAS weighted by how much credit the model assigns
-  CASE WHEN a.value_mode != 'count'
-    THEN ROUND(
-      (a.attributed_value_usd / NULLIF(c.cost_usd, 0)) * (a.total_credit / NULLIF(a.attributed_conversions, 0)),
-      2
-    )
-    ELSE NULL
-  END AS efficiency_score
-
-cost_daily AS (
   -- Aggregate cost to date × channel to match attribution grain
   SELECT
     date,
