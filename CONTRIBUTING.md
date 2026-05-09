@@ -15,7 +15,7 @@ git checkout -b feature/your-feature-name
 
 ### 3. Make Changes
 - Add new attribution models in `definitions/attribution_models/*.sqlx`
-- Add funnel analyses in `/ecommerce_funnel/`
+- Add funnel analyses in `definitions/ecommerce_funnel/`
 - Update documentation as needed
 
 ### 4. Test Your Queries

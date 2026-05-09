@@ -3,7 +3,7 @@
 **Repository:** [github.com/GlitchG/ga4-attribution-models](https://github.com/GlitchG/ga4-attribution-models)  
 **License:** MIT  
 **Dataform version:** 3.x  
-**Last updated:** 2026-05-05
+**Last updated:** 2026-05-09
 
 ---
 
@@ -144,7 +144,7 @@ const CONVERSION_EVENTS = [
 
 ### 3.2 Channel grouping (`includes/channel_grouping.js`)
 
-17-channel taxonomy:
+19-channel taxonomy:
 
 1. Cross-network
 2. Paid Search Brand
@@ -297,14 +297,17 @@ ORDER BY revenue DESC;
 Pre-aggregated for dashboards. One row per model × conversion_event × channel.
 
 | Column | Description |
-|---|---|
+|---|---|---|
 | `model` | Attribution model |
 | `conversion_event` | Conversion event name |
+| `value_mode` | Value interpretation: revenue, fixed, or count |
 | `channel` | Channel |
 | `attributed_conversions` | Number of conversions |
-| `total_value_local` | Sum of attributed local currency |
+| `total_credit` | Sum of attribution credit (0–1 scale) |
 | `total_value_usd` | Sum of attributed USD |
-| `avg_path_length` | Average path length for this segment |
+| `total_value_local` | Sum of attributed local currency |
+| `avg_order_value_usd` | Average order value in USD |
+| `avg_order_value_local` | Average order value in local currency |
 
 ### 5.3 `int_attribution_journeys`
 
@@ -340,7 +343,7 @@ Trains a logistic regression model on:
 - **Positive class:** Users who converted (binary channel flags from their journey)
 - **Negative class:** Users who had sessions but did NOT convert
 
-Features: `conversion_event` (categorical) + 17 binary channel flags.
+Features: 19 binary channel flags (one per channel). `conversion_event` is intentionally excluded — see CHANGELOG v2.0 decision #3.
 
 **Credit assignment:** For each touchpoint in a converted journey, the model's predicted conversion probability is compared with and without that channel. The difference is the marginal contribution.
 
@@ -473,9 +476,9 @@ The pipeline will read from `client-project` and write to your default database.
 
 The pipeline includes 6 Dataform assertions:
 
-1. `stg_ga4_conversions` unique key on `(user_pseudo_id, event_timestamp, event_name)`
-2. `stg_ga4_conversions` row conditions: `conversion_value_usd >= 0`, `event_timestamp` valid
-3. `int_attribution_journeys` unique key on `(user_pseudo_id, conversion_id)`
+1. `stg_ga4_conversions` unique key on `(user_pseudo_id, conversion_ts, conversion_event, transaction_id)`
+2. `stg_ga4_conversions` row conditions: `purchase_revenue_in_usd >= 0`, `conversion_ts` valid
+3. `int_attribution_journeys` unique key on `(user_pseudo_id, conversion_ts, conversion_event, transaction_id)`
 4. `int_attribution_journeys` row conditions: `conversion_value_usd >= 0`, `path_length >= 1`
 5. `int_attribution_path_rows` unique key on `(user_pseudo_id, conversion_id, session_position_asc)`
 6. `int_attribution_path_rows` row conditions: `ARRAY_LENGTH(path) = path_length`

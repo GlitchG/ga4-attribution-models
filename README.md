@@ -8,7 +8,7 @@ Eight attribution models in **Dataform** (BigQuery-native), runnable on Google's
 - Builds deduplicated ordered user journeys with `ARRAY_AGG`
 - Applies a **per-conversion-type lookback window** (configurable per event)
 - Supports **multi-conversion**: purchase, begin_checkout, add_to_cart, leads, signups — add events in one config file
-- Uses **17-channel normalization** including Paid Search Brand vs Non-Brand, Cross-network, Paid Video, Organic Shopping
+- Uses **19-channel normalization** including Paid Search Brand vs Non-Brand, Cross-network, Paid Video, Organic Shopping
 - **Zero duplicates**: sessions deduped by `user_pseudo_id + session_id`, conversions by `user_pseudo_id + timestamp + transaction_id`, paths by journey aggregation
 - **Privacy-ready**: pass-through of consent mode v2 fields + optional modeled-events exclusion
 
@@ -121,13 +121,13 @@ These do **not** include the full ecommerce enrichment, deduplication, assertion
 - **Context enrichment** — `device_category`, `device_os`, `browser`, `browser_version`, `country`, `region`, `city`
 - **Deep UTM + click IDs** — `gclid`, `dclid`, `srsltid`, `msclkid`, `fbclid`, `ttclid`, `twclid`, `li_fat_id`, `page_location`, `page_referrer`, `hostname`
 - **Auto source extraction** — `session_traffic_source_last_click` (post-2024) → `collected_traffic_source` (post-2023) → `event_params` (all exports)
-- **Channel normalization** — 17-channel grouping via `includes/channel_grouping.js` with Brand vs Non-Brand Paid Search split
+- **Channel normalization** — 19-channel grouping via `includes/channel_grouping.js` with Brand vs Non-Brand Paid Search split
 - **Per-conversion lookback** → configurable per event type (purchase=30d, add_to_cart=7d, etc.)
 - **Exact lookback windows** — `_TABLE_SUFFIX` extended by `max(lookback_days)` + `event_timestamp` filtering
 - **Multi-conversion cycles** — `ROW_NUMBER()` per user, each conversion gets its own journey
 - **Ordered paths** — sessions sorted by `session_start`, with position numbering
 - **Direct traffic handling** — `IFNULL(source, '(direct)')`, non-Direct fallback logic
-- **Data-Driven BQML** — logistic regression on 17 binary channel features with `conversion_event` as categorical feature
+- **Data-Driven BQML** — logistic regression on 19 binary channel features (conversion_event intentionally excluded as a feature)
 - **Privacy / consent mode v2** — pass-through of `privacy_info` fields + `exclude_modeled_events` runtime flag
 - **Assertions** — Dataform-native data quality checks on unique keys, non-nulls, and row conditions
 - **Vars-driven** — `start_date`, `end_date`, `ga4_project`, `ga4_dataset`, `lookback_days`, `source_extraction_mode`, `exclude_modeled_events` centralised in `workflow_settings.yaml`
@@ -202,7 +202,7 @@ The pipeline has been tested end-to-end on `bigquery-public-data.ga4_obfuscated_
 - 0 duplicate path rows
 - Credit sums to 1.0 per conversion across all models
 - Revenue conservation: attributed total = raw total (±$5 rounding tolerance)
-- 0 unexpected channels (all map to the 17-channel taxonomy)
+- 0 unexpected channels (all map to the 19-channel taxonomy)
 
 **Dataset characteristics (public sample, 2020-11-01 to 2020-12-19, verified run):**
 

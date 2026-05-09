@@ -96,10 +96,10 @@ GROUP BY 1, 2
 HAVING COUNT(*) > 1
 """;
 
--- 10. No duplicate (user_pseudo_id, conversion_ts, conversion_event) in journeys
+-- 10. No duplicate (user_pseudo_id, conversion_ts, conversion_event, transaction_id) in journeys
 EXECUTE IMMEDIATE """
-SELECT user_pseudo_id, conversion_ts, conversion_event, COUNT(*) AS dupes
+SELECT user_pseudo_id, conversion_ts, conversion_event, transaction_id, COUNT(*) AS dupes
 FROM `""" || project_id || """.intermediate.int_attribution_journeys`
-GROUP BY 1, 2, 3
+GROUP BY 1, 2, 3, 4
 HAVING COUNT(*) > 1
 """;

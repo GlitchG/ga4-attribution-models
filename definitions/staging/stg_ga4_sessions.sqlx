@@ -13,7 +13,7 @@ config {
     campaign: "Campaign name",
     content: "Ad content",
     term: "Search term",
-    channel: "Normalised 17-channel grouping",
+    channel: "Normalised 19-channel grouping",
     device_category: "Device category",
     device_os: "Device operating system",
     country: "User country",
