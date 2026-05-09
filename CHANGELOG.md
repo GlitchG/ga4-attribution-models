@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+## [2.0.1] — 2026-05-08
+
+### Fixed
+- **`attribution_with_roas.sqlx`** — added `cost_daily` CTE to pre-aggregate `int_unified_cost` to date × channel grain, preventing duplicate rows from campaign-level granularity.
+- **`stg_ga4_conversions.sqlx`** — removed lookback window from conversion timestamp filter. Conversions are now strictly within `[start_date, end_date]`. Previously, conversions before `start_date` were included with incomplete journeys, inflating counts.
+- **`int_attribution_journeys.sqlx`** — added `transaction_id` to uniqueKey assertion to prevent false failures on same-timestamp purchases. Added tiebreaker (`conversion_event, COALESCE(transaction_id, '')`) to `user_conversion_seq` ORDER BY for deterministic `conversion_id` across runs. Added `transaction_id` to GROUP BY to satisfy BigQuery window-function scoping.
+- **`attr_data_driven_bqml.sqlx`** — filtered out zero-credit rows (channels not present in the journey path) from output. Added fallback: when `total_effect = 0`, distributes `1/19` credit equally. Reduces mart row count without affecting attribution totals.
+- **`funnel_dashboard.sqlx`** — corrected description: BigQuery UNION ALL matches by position, not column name.
+- **`cross_channel_comparison.sqlx`** — simplified `COUNT(DISTINCT CONCAT(...))` to `COUNT(DISTINCT conversion_id)` since conversion_id is already globally unique.
+
 ## [Unreleased] — v2.0.0
 
 ### Locked decisions (v2.0 architecture)

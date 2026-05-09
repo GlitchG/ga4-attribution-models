@@ -78,6 +78,18 @@ data_driven_value AS (
   FROM ${ref("attribution_mart")}
   WHERE model = 'data_driven_bqml'
   GROUP BY DATE(conversion_ts), conversion_event, channel
+),
+
+cost_daily AS (
+  SELECT
+    date,
+    channel,
+    SUM(cost_usd) AS cost_usd,
+    SUM(impressions) AS impressions,
+    SUM(clicks) AS clicks,
+    STRING_AGG(DISTINCT source_system, ', ' ORDER BY source_system) AS source_systems
+  FROM ${ref("int_unified_cost")}
+  GROUP BY date, channel
 )
 
 SELECT

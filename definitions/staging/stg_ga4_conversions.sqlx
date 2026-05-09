@@ -58,10 +58,7 @@ WITH raw_conversions AS (
     AND '${constants.END_DATE}'
     AND event_name IN (${conversion_config.getEventList()})
     ${constants.getModeledEventsFilter()}
-    AND TIMESTAMP_MICROS(event_timestamp) >= TIMESTAMP_SUB(
-      TIMESTAMP(PARSE_DATE('%Y%m%d', '${constants.START_DATE}')),
-      INTERVAL ${constants.LOOKBACK_DAYS} DAY
-    )
+    AND TIMESTAMP_MICROS(event_timestamp) >= TIMESTAMP(PARSE_DATE('%Y%m%d', '${constants.START_DATE}'))
     AND TIMESTAMP_MICROS(event_timestamp) <= TIMESTAMP(PARSE_DATE('%Y%m%d', '${constants.END_DATE}'))
 ),
 deduped AS (
