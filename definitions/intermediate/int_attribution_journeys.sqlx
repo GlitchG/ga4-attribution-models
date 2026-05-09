@@ -97,6 +97,7 @@ deduped_paths AS (
   SELECT *
   FROM conversion_sessions
   WHERE session_rn = 1
+    AND session_start IS NOT NULL
 ),
 agg_journeys AS (
   SELECT

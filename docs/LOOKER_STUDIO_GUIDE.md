@@ -6,6 +6,43 @@
 
 ---
 
+## Dashboard Overview
+
+This guide shows you how to build a three-page Looker Studio dashboard from the Dataform output.
+
+**Page 1 — Attribution Comparison:** The "CEO slide". Compare how channel importance shifts across all 8 models.  
+**Page 2 — Funnel & Abandonment:** Visualise drop-off from add_to_cart to purchase.  
+**Page 3 — User Journeys:** Top conversion paths, path length distribution, device breakdown.
+
+### Build Order (Dataform)
+
+Run these tags in order if you want to build incrementally:
+
+1. `dataform run --tags=staging` — Sessions and conversions
+2. `dataform run --tags=attribution,model` — Rule-based models + mart
+3. `dataform run --tags=ml` — BQML data-driven model
+4. `dataform run --tags=dashboard` — Dashboard views
+
+Or run everything at once: `dataform run`.
+
+### Row Counts to Expect (Public Dataset)
+
+| Table | Approximate Rows |
+|---|---|
+| `attribution_mart` | ~58,000 |
+| `cross_channel_comparison` | ~56 |
+| `paths_dashboard` | ~12,000 |
+| `funnel_dashboard` | 6 (5 stages + 1 cart abandonment) |
+
+### Cost Notes
+
+- Looker Studio queries BigQuery **live** every time someone opens the dashboard
+- The dashboard views (`dashboard.*`) read from materialised tables, not raw GA4 events — trivial cost
+- Set cache freshness to **4 hours** to reduce repeated queries
+- For scheduled PDF delivery, the snapshot queries run once at schedule time
+
+---
+
 ## 1. Connecting BigQuery to Looker Studio
 
 ### 1.1 Create a New Report
@@ -145,7 +182,6 @@ SUM(CASE WHEN model = 'last_click' THEN attributed_value_usd ELSE 0 END)
   / SUM(CASE WHEN model = 'last_click' THEN attributed_credit ELSE 0 END) 
   * attributed_credit
 ```
-(This calculates what revenue would be under Last Click's per-conversion rate, then subtracts.)
 
 Simpler alternative — two calculated fields:
 
@@ -169,13 +205,66 @@ Chart settings:
 
 Use **conditional formatting**: green for positive (>0 means model gives MORE credit than Last Click), red for negative.
 
+### 2.5 Scorecard Grid: Top Channels (Executive Summary)
+
+For a "CEO slide" — instant hero channels without scrolling:
+
+| Setting | Value |
+|---------|-------|
+| Chart type | **Scorecard** (one per channel) |
+| Metric | `SUM(attributed_value_usd)` |
+| Filter | One scorecard per `channel` |
+
+Arrange 4–6 scorecards in a row at the top of the dashboard. Add a filter control on `model` so switching models updates all scorecards simultaneously.
+
 ---
 
-## 3. Channel Performance Heatmap
+## 3. Data-Driven Model Deep-Dive
+
+For `attr_data_driven_bqml`, create a separate page with BQML-specific charts.
+
+### 3.1 Feature Importance (Bar Chart)
+
+Run this query in BigQuery, save as table, connect:
+```sql
+SELECT
+  * EXCEPT(model, processed_input, expected_value)
+FROM
+  ML.WEIGHTS(MODEL `your-project.attribution_models.attr_data_driven_model`)
+ORDER BY ABS(weight) DESC
+```
+
+| Setting | Value |
+|---------|-------|
+| Chart type | **Bar Chart** |
+| Dimension | `input` (channel name) |
+| Metric | `weight` |
+| Sort | `ABS(weight)` descending |
+
+### 3.2 Predicted vs Actual Conversion Rate (Scatter)
+
+```sql
+SELECT
+  predicted_converted_label,
+  AVG(converted) AS actual_conversion_rate
+FROM
+  ML.EVALUATE(MODEL `your-project.attribution_models.attr_data_driven_model`)
+GROUP BY predicted_converted_label
+```
+
+| Setting | Value |
+|---------|-------|
+| Chart type | **Scatter Chart** |
+| Dimension | `predicted_converted_label` |
+| Metric | `actual_conversion_rate` |
+
+---
+
+## 4. Channel Performance Heatmap
 
 **Goal:** Matrix view of model × channel to spot over/under-attribution at a glance.
 
-### 3.1 Pivot Table Heatmap
+### 4.1 Pivot Table Heatmap
 
 | Setting | Value |
 |---------|-------|
@@ -199,21 +288,21 @@ Use **conditional formatting**: green for positive (>0 means model gives MORE cr
 
 *What you'll see:* A channel × model grid. "Referral" under Last Click might be dark (high revenue), but under First Click it could be lighter — revealing how credit shifts based on position.
 
-### 3.2 Heatmap Variant — Attributed Credit
+### 4.2 Heatmap Variant — Attributed Credit
 
 Duplicate the pivot table and change the metric to `SUM(attributed_credit)`. This shows conversion credit distribution rather than revenue. Use a different color scale (e.g., green) to distinguish from the revenue heatmap.
 
-### 3.3 Heatmap Variant — Average Order Value
+### 4.3 Heatmap Variant — Average Order Value
 
 A third pivot using `AVG(aov_usd)` as the metric. This reveals whether certain models attribute higher-value conversions to certain channels.
 
 ---
 
-## 4. Conversion Path Analysis
+## 5. Conversion Path Analysis
 
 **Goal:** Show the most common user journey paths leading to purchase.
 
-### 4.1 Table: Top Conversion Paths
+### 5.1 Table: Top Conversion Paths
 
 Use the **Paths** data source.
 
@@ -228,7 +317,7 @@ Use the **Paths** data source.
 
 *What you'll see:* Paths like "Organic Search > Direct > Referral > Purchase" with revenue and path length. The `path_string` column shows the full sequence using `>` as a separator.
 
-### 4.2 Path Length Distribution
+### 5.2 Path Length Distribution
 
 **Calculated Field — `path_length` (already in data):** Use directly.
 
@@ -241,7 +330,7 @@ Use the **Paths** data source.
 
 This shows how many conversions happen at each path length. Most conversions typically cluster at paths of 1–3 touchpoints.
 
-### 4.3 Revenue by Path Length
+### 5.3 Revenue by Path Length
 
 | Setting | Value |
 |---------|-------|
@@ -251,7 +340,7 @@ This shows how many conversions happen at each path length. Most conversions typ
 
 Compare this with chart 4.2: longer paths may represent higher-value purchases.
 
-### 4.4 Device Breakdown of Paths
+### 5.4 Device Breakdown of Paths
 
 | Setting | Value |
 |---------|-------|
@@ -263,11 +352,11 @@ Add a filter control for `path_length` so users can see how mobile vs. desktop d
 
 ---
 
-## 5. Ecommerce Funnel Visualization
+## 6. Ecommerce Funnel Visualization
 
 **Goal:** Visualize drop-off through the ecommerce funnel: Sessions → Product Views → Add to Cart → Checkout → Purchase.
 
-### 5.1 Funnel Chart
+### 6.1 Funnel Chart
 
 | Setting | Value |
 |---------|-------|
@@ -299,7 +388,7 @@ Name it `stage_order`. Then sort `stage` by `stage_order`.
 
 *What you'll see:* A funnel narrowing from Add to Cart (widest) down to Purchase (narrowest). Each stage shows user count and drop-off percentage.
 
-### 5.2 Drop-off Bar Chart
+### 6.2 Drop-off Bar Chart
 
 | Setting | Value |
 |---------|-------|
@@ -310,7 +399,7 @@ Name it `stage_order`. Then sort `stage` by `stage_order`.
 
 Add a secondary metric if desired: `stage_revenue_usd` (revenue generated at each step, only meaningful at Purchase).
 
-### 5.3 Cart Abandonment Scorecard
+### 6.3 Cart Abandonment Scorecard
 
 Cart abandonment data is in the same `funnel_dashboard` source with `stage_num = 99`.
 
@@ -322,7 +411,7 @@ Cart abandonment data is in the same `funnel_dashboard` source with `stage_num =
 
 Display this prominently — it shows the percentage of users who added to cart but never purchased.
 
-### 5.4 Funnel Stage Conversion Rates
+### 6.4 Funnel Stage Conversion Rates
 
 **Calculated Field — `stage_conversion_rate`:**  
 If using the raw `purchase_funnel` table (not `funnel_dashboard`):
@@ -341,11 +430,11 @@ With `funnel_dashboard`, use the pre-calculated `pct_of_top_users` field instead
 
 ---
 
-## 6. Revenue Attribution Sankey / Flow (Advanced)
+## 7. Revenue Attribution Sankey / Flow (Advanced)
 
 **Goal:** Show how revenue flows from channels to conversion credit under different models.
 
-### 6.1 Sankey Diagram
+### 7.1 Sankey Diagram
 
 *Looker Studio does not have a native Sankey chart.* Options:
 
@@ -395,7 +484,7 @@ For publication-quality Sankeys:
 2. Export as CSV
 3. Import into [Flourish](https://flourish.studio/) or [SankeyMATIC](https://sankeymatic.com/)
 
-### 6.2 Flow Visualization: Channel → Attribution Model Revenue
+### 7.2 Flow Visualization: Channel → Attribution Model Revenue
 
 Create a stacked bar alternative:
 
@@ -410,11 +499,11 @@ This shows how each model distributes revenue across channels as proportions.
 
 ---
 
-## 7. Cross-Model Revenue Comparison
+## 8. Cross-Model Revenue Comparison
 
 **Goal:** Compare total attributed revenue across models to see which models give more/less revenue to each channel.
 
-### 7.1 Stacked Bar: Revenue by Model
+### 8.1 Stacked Bar: Revenue by Model
 
 | Setting | Value |
 |---------|-------|
@@ -427,7 +516,7 @@ This shows how each model distributes revenue across channels as proportions.
 
 *How to read:* A stacked bar for "first_click" with a large "Organic Search" segment means First Click attributes most revenue to Organic Search. The "last_click" bar will likely have a larger "Direct" segment.
 
-### 7.2 Table: Model Comparison Summary
+### 8.2 Table: Model Comparison Summary
 
 Use the `cross_channel_comparison` table via custom query:
 
@@ -455,7 +544,7 @@ total_revenue / SUM(total_revenue)
 ```
 Add this as a percentage column to confirm each model accounts for 12.5% (1/8) of total revenue.
 
-### 7.3 Radar / Spider Chart: Channel Profiles per Model
+### 8.3 Radar / Spider Chart: Channel Profiles per Model
 
 | Setting | Value |
 |---------|-------|
@@ -468,11 +557,11 @@ Add this as a percentage column to confirm each model accounts for 12.5% (1/8) o
 
 ---
 
-## 8. Time Series of Conversions
+## 9. Time Series of Conversions
 
 **Goal:** Show how attributed conversions and revenue trend over time, by model and channel.
 
-### 8.1 Line Chart: Daily Attributed Revenue by Model
+### 9.1 Line Chart: Daily Attributed Revenue by Model
 
 | Setting | Value |
 |---------|-------|
@@ -485,7 +574,7 @@ Add this as a percentage column to confirm each model accounts for 12.5% (1/8) o
 
 *What you'll see:* Eight lines tracking daily attributed revenue. On any given day, the 8 lines should be identical (same total revenue, different only in how it's split across channels within each model). Differences indicate data issues.
 
-### 8.2 Time Series: Attributed Revenue by Channel
+### 9.2 Time Series: Attributed Revenue by Channel
 
 | Setting | Value |
 |---------|-------|
@@ -496,7 +585,7 @@ Add this as a percentage column to confirm each model accounts for 12.5% (1/8) o
 
 Add a **Filter Control** for `model` so users can switch between models and see how channel composition changes over time.
 
-### 8.3 Time Series: Attribution Model Differences Over Time
+### 9.3 Time Series: Attribution Model Differences Over Time
 
 Create a calculated field that measures the delta between two models:
 
@@ -514,7 +603,7 @@ SUM(CASE WHEN model = 'first_click' THEN attributed_value_usd ELSE 0 END)
 
 This shows whether the "attribution gap" between First Click and Last Click widens or narrows over time.
 
-### 8.4 Week-over-Week Change
+### 9.4 Week-over-Week Change
 
 **Calculated Field — `wow_revenue_change`:**
 ```
@@ -532,11 +621,11 @@ This shows whether the "attribution gap" between First Click and Last Click wide
 
 ---
 
-## 9. Filters and Controls
+## 10. Filters and Controls
 
 Good dashboards are interactive. Add these controls to help users explore the data.
 
-### 9.1 Date Range Control
+### 10.1 Date Range Control
 
 | Setting | Value |
 |---------|-------|
@@ -546,7 +635,7 @@ Good dashboards are interactive. Add these controls to help users explore the da
 
 *How to add:* **Add a control** → **Date range control**. Position it at the top of the dashboard. No configuration needed — it auto-filters all charts using `conversion_ts`.
 
-### 9.2 Model Selector
+### 10.2 Model Selector
 
 | Setting | Value |
 |---------|-------|
@@ -556,7 +645,7 @@ Good dashboards are interactive. Add these controls to help users explore the da
 
 *Default selection:* All models. Users can deselect to focus on 2–3 models at a time.
 
-### 9.3 Channel Selector
+### 10.3 Channel Selector
 
 | Setting | Value |
 |---------|-------|
@@ -564,7 +653,7 @@ Good dashboards are interactive. Add these controls to help users explore the da
 | Control field | `channel` |
 | Style | Multi-select |
 
-### 9.4 Path Length Filter (Slider)
+### 10.4 Path Length Filter (Slider)
 
 | Setting | Value |
 |---------|-------|
@@ -574,14 +663,14 @@ Good dashboards are interactive. Add these controls to help users explore the da
 
 *Use case:* "Show me only conversions that took 3+ touchpoints."
 
-### 9.5 Device Category Filter
+### 10.5 Device Category Filter
 
 | Setting | Value |
 |---------|-------|
 | Control type | **Drop-down list** |
 | Control field | `device_category` |
 
-### 9.6 Cross-Filtering (Chart Interactions)
+### 10.6 Cross-Filtering (Chart Interactions)
 
 Enable cross-filtering so clicking a bar in one chart filters all others:
 1. Click any chart
@@ -590,7 +679,7 @@ Enable cross-filtering so clicking a bar in one chart filters all others:
 
 Now clicking "Organic Search" in the bar chart will filter the time series and paths table to only Organic Search rows.
 
-### 9.7 Control Layout Tips
+### 10.7 Control Layout Tips
 
 - Place date range and model selector at the **top** (global controls)
 - Place channel selector on the main comparison page
@@ -599,9 +688,9 @@ Now clicking "Organic Search" in the bar chart will filter the time series and p
 
 ---
 
-## 10. Sharing and Refresh
+## 11. Sharing and Refresh
 
-### 10.1 Data Freshness
+### 11.1 Data Freshness
 
 Looker Studio uses **live connections** to BigQuery. Every time someone views the dashboard, it queries BigQuery.
 
@@ -612,7 +701,7 @@ Looker Studio uses **live connections** to BigQuery. Every time someone views th
 
 *Recommendation:* Set cache to **4 hours** for daily reporting. For real-time dashboards, set to **15 minutes** (note: higher BigQuery query costs).
 
-### 10.2 Sharing the Dashboard
+### 11.2 Sharing the Dashboard
 
 1. Click **Share** (top-right) → **Invite people**
 2. Enter email addresses
@@ -624,7 +713,7 @@ Looker Studio uses **live connections** to BigQuery. Every time someone views th
 
 > **Important:** Viewers do NOT need BigQuery access. Looker Studio uses the report owner's credentials to query BigQuery. Viewers see charts only — they cannot run arbitrary queries against your data.
 
-### 10.3 Download Options
+### 11.3 Download Options
 
 Users (and you) can download data from any chart:
 1. Hover over the chart → click the three-dot menu (⋮)
@@ -632,7 +721,7 @@ Users (and you) can download data from any chart:
 
 To download the full underlying dataset, use the **Data** tab → **Export**.
 
-### 10.4 Scheduling PDF / Email Delivery
+### 11.4 Scheduling PDF / Email Delivery
 
 Looker Studio supports scheduled email delivery:
 
@@ -644,14 +733,14 @@ Looker Studio supports scheduled email delivery:
 
 *Note:* PDF exports capture the dashboard as it appears at the scheduled time. Interactive filters are not active in PDFs.
 
-### 10.5 Embedding
+### 11.5 Embedding
 
 To embed the dashboard in a webpage or internal portal:
 1. **File** → **Embed report**
 2. Copy the iframe code
 3. **Optional:** Check "Enable embedding" to restrict which domains can embed
 
-### 10.6 BigQuery Cost Management
+### 11.6 BigQuery Cost Management
 
 | Concern | Solution |
 |---------|----------|
@@ -661,7 +750,7 @@ To embed the dashboard in a webpage or internal portal:
 
 The `dashboard.attribution_dashboard` and `cross_channel_comparison` views query materialized tables (~58K rows for the mart, ~56 rows for the comparison). These are **trivially cheap** — expect cents per month even with frequent viewing.
 
-### 10.7 Troubleshooting
+### 11.7 Troubleshooting
 
 | Problem | Likely Cause | Fix |
 |---------|-------------|-----|
@@ -681,7 +770,7 @@ The `dashboard.attribution_dashboard` and `cross_channel_comparison` views query
 | Field | Type | Description |
 |-------|------|-------------|
 | `model` | Text | Attribution model name: first_click, last_click, last_non_direct_click, linear, time_decay, u_shape, position_weighted, data_driven_bqml |
-| `channel` | Text | Marketing channel (17-channel taxonomy): Cross-network, Paid Search Brand, Paid Search Non-Brand, Paid Shopping, Paid Social, Paid Video, Display, Organic Search, Organic Shopping, Organic Social, Organic Video, Email, SMS, Affiliate, Audio, Mobile Push, Referral, Direct, Unknown |
+| `channel` | Text | Marketing channel (19-channel taxonomy): Cross-network, Paid Search Brand, Paid Search Non-Brand, Paid Shopping, Paid Social, Paid Video, Display, Organic Search, Organic Shopping, Organic Social, Organic Video, Email, SMS, Affiliate, Audio, Mobile Push, Referral, Direct, Unknown |
 | `conversion_id` | Text | Globally unique conversion identifier |
 | `conversion_ts` | DateTime | Timestamp of the conversion event |
 | `conversion_event` | Text | Event name (e.g., 'purchase', 'generate_lead', 'subscribe') |

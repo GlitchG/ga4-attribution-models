@@ -78,6 +78,7 @@ function channelGrouping(mediumExpr, sourceExpr, campaignExpr) {
 
 function getChannelList() {
   // Single source of truth for BQML feature engineering and validation.
+  // 19 channels including Unknown for public-sample anonymised values.
   return [
     'Cross-network', 'Paid Search Brand', 'Paid Search Non-Brand',
     'Paid Shopping', 'Paid Social', 'Paid Video', 'Display',

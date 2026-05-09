@@ -3,13 +3,14 @@ config {
   schema: "ml",
   name: "attr_data_driven_train",
   tags: ["ml", "attribution"],
-  description: "Trains BQML logistic regression on converted vs non-converted paths for data-driven attribution. Single model with 17 dynamic channel flags. NOTE: conversion_event is intentionally excluded as a feature to avoid signal mixing across funnel stages (see CHANGELOG v2.0 decision #3).",
+  description: "Trains BQML logistic regression on converted vs non-converted paths for data-driven attribution. Single model with 19 dynamic channel flags. NOTE: conversion_event is intentionally excluded as a feature to avoid signal mixing across funnel stages (see CHANGELOG v2.0 decision #3).",
   hasOutput: true
 }
 
--- Single model trained on all conversion events with conversion_event as categorical.
--- If signal mixing across funnel stages causes problems, refactor to per-conversion-event
--- models in v2.1. See CHANGELOG v2.0 decision #3.
+-- Single model trained on all conversion events with 19 channel flags only.
+-- conversion_event is intentionally excluded as a feature to avoid signal mixing
+-- across funnel stages (see CHANGELOG v2.0 decision #3). Per-conversion-event
+-- split deferred to v2.1 if needed.
 
 CREATE OR REPLACE TABLE `${database()}.ml.attr_data_driven_train` AS (
   WITH

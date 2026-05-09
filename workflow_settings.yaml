@@ -11,3 +11,4 @@ vars:
   lookback_days: "30"
   source_extraction_mode: "event_params"
   exclude_modeled_events: "false"
+  has_privacy_info: "false"

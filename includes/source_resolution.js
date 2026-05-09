@@ -1,8 +1,9 @@
 // Source resolution SQL fragments for stg_ga4_sessions.sqlx.
-// Mode is controlled by the source_extraction_mode var.
+// Mode is controlled by the source_extraction_mode var (falls back to constants.SOURCE_EXTRACTION_MODE).
+const constants = require('./constants');
 
 function getSourceResolutionFrag() {
-  var mode = dataform.projectConfig.vars.source_extraction_mode || 'event_params';
+  var mode = dataform.projectConfig.vars.source_extraction_mode || constants.SOURCE_EXTRACTION_MODE || 'event_params';
   if (mode === 'event_params') {
     return `
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'source') AS source,
@@ -55,7 +56,7 @@ function getSourceResolutionFrag() {
 }
 
 function getClickIdFrag() {
-  var mode = dataform.projectConfig.vars.source_extraction_mode || 'event_params';
+  var mode = dataform.projectConfig.vars.source_extraction_mode || constants.SOURCE_EXTRACTION_MODE || 'event_params';
   if (mode === 'event_params' || mode === 'session_stslc') {
     return `
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'gclid') AS gclid,
@@ -74,4 +75,17 @@ function getClickIdFrag() {
   }
 }
 
-module.exports = { getSourceResolutionFrag, getClickIdFrag };
+function getPrivacyFrag() {
+  var hasPrivacy = dataform.projectConfig.vars.has_privacy_info === "true";
+  if (hasPrivacy) {
+    return `privacy_info.analytics_storage AS privacy_analytics_storage,
+    privacy_info.ads_storage AS privacy_ads_storage,
+    privacy_info.uses_transient_token AS privacy_uses_transient_token,`;
+  } else {
+    return `NULL AS privacy_analytics_storage,
+    NULL AS privacy_ads_storage,
+    NULL AS privacy_uses_transient_token,`;
+  }
+}
+
+module.exports = { getSourceResolutionFrag, getClickIdFrag, getPrivacyFrag };
