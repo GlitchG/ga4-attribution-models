@@ -71,8 +71,10 @@ function channelGrouping(mediumExpr, sourceExpr, campaignExpr) {
     -- 18. Public sample anonymised values
     WHEN COALESCE(${sourceExpr}, '') LIKE '%data deleted%' OR COALESCE(${sourceExpr}, '') LIKE '%<Other>%' THEN 'Unknown'
 
-    -- Catch-all
-    ELSE CONCAT(COALESCE(${sourceExpr}, '(direct)'), ' / ', COALESCE(${mediumExpr}, '(none)'))
+    -- Catch-all: map any unclassified traffic to 'Unknown' so it matches
+    -- the 19th channel in getChannelList() and in BQML feature engineering.
+    -- Raw source/medium values belong in the session table, not the channel column.
+    ELSE 'Unknown'
   END`;
 }
 

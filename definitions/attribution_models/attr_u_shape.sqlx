@@ -3,7 +3,7 @@ config {
   schema: "attribution_models",
   name: "attr_u_shape",
   tags: ["attribution", "model"],
-  description: "U-shaped attribution: 40% first, 40% last, 20% split among middle sessions."
+  description: "U-shaped attribution: first and last touches share credit in a 40:40 ratio; remaining 20% is split equally among middle sessions. For single-session paths the session receives 100%. For two-session paths there are no middle sessions, so credit is normalised to 50%/50% (the 40:40 ratio, with zero middle weight). For three or more sessions: first = 40%, last = 40%, each middle = 20% / (path_length - 2)."
 }
 
 WITH paths AS (

@@ -18,14 +18,18 @@ WITH base_features AS (
     user_pseudo_id,
     conversion_id,
     conversion_event,
-    conversion_value_usd,
-    conversion_value_local,
-    ANY_VALUE(conversion_ts) AS conversion_ts,
-    ANY_VALUE(transaction_id) AS transaction_id,
-    ANY_VALUE(path_length) AS path_length,
-    ANY_VALUE(source) AS source,
-    ANY_VALUE(medium) AS medium,
-    ANY_VALUE(campaign) AS campaign,
+    -- ANY_VALUE for scalar fields: these are identical for all rows sharing the
+    -- same (user_pseudo_id, conversion_id, conversion_event) tuple, so we just
+    -- pick one. Grouping on value columns directly risks float-precision
+    -- divergence that would create spurious duplicate conversion_id rows.
+    ANY_VALUE(conversion_value_usd)   AS conversion_value_usd,
+    ANY_VALUE(conversion_value_local) AS conversion_value_local,
+    ANY_VALUE(conversion_ts)          AS conversion_ts,
+    ANY_VALUE(transaction_id)         AS transaction_id,
+    ANY_VALUE(path_length)            AS path_length,
+    ANY_VALUE(source)                 AS source,
+    ANY_VALUE(medium)                 AS medium,
+    ANY_VALUE(campaign)               AS campaign,
     MAX(CASE WHEN channel = 'Paid Search Brand' THEN 1 ELSE 0 END) AS has_paid_search_brand,
     MAX(CASE WHEN channel = 'Paid Search Non-Brand' THEN 1 ELSE 0 END) AS has_paid_search_non_brand,
     MAX(CASE WHEN channel = 'Paid Social' THEN 1 ELSE 0 END) AS has_paid_social,
@@ -46,7 +50,7 @@ WITH base_features AS (
     MAX(CASE WHEN channel = 'Mobile Push' THEN 1 ELSE 0 END) AS has_mobile_push,
     MAX(CASE WHEN channel = 'Unknown' THEN 1 ELSE 0 END) AS has_unknown
   FROM ${ref("intermediate", "int_attribution_path_rows")}
-  GROUP BY 1, 2, 3, 4, 5
+  GROUP BY 1, 2, 3
 ),
 
 -- Predict with ALL channels
@@ -335,9 +339,11 @@ credited AS (
     r.medium,
     r.campaign,
     r.channel,
+    -- Keep full float precision here; rounding happens only in the final SELECT.
+    -- ROUND(1/19, 4) = 0.0526, and 19 × 0.0526 = 0.9994 (loses 0.0006 of credit).
     CASE
-      WHEN s.total_effect = 0 THEN ROUND(1.0 / 19, 4)
-      ELSE ROUND(r.removal_effect / s.total_effect, 4)
+      WHEN s.total_effect = 0 THEN 1.0 / 19
+      ELSE r.removal_effect / s.total_effect
     END AS credit_share
   FROM removal_effects r
   JOIN sums s
@@ -360,8 +366,7 @@ SELECT
   campaign,
   channel,
   'data_driven_bqml' AS model,
-  credit_share AS attributed_credit,
-  ${conversion_config.getValueExpr('conversion_event', 'conversion_value_usd', 'credit_share')} AS attributed_value_usd,
-  ${conversion_config.getValueExpr('conversion_event', 'conversion_value_local', 'credit_share')} AS attributed_value_local
+  ROUND(credit_share, 6) AS attributed_credit,
+  ${conversion_config.getValueExpr('conversion_event', 'conversion_value_usd', 'ROUND(credit_share, 6)')} AS attributed_value_usd,
+  ${conversion_config.getValueExpr('conversion_event', 'conversion_value_local', 'ROUND(credit_share, 6)')} AS attributed_value_local
 FROM credited
-WHERE credit_share > 0

@@ -8,7 +8,7 @@ config {
     uniqueKey: ["user_pseudo_id", "conversion_ts", "conversion_event", "transaction_id"],
     nonNull: ["user_pseudo_id", "conversion_ts", "path_length"],
     rowConditions: [
-      "conversion_value_usd >= 0",
+      "conversion_value_usd IS NULL OR conversion_value_usd >= 0",
       "path_length >= 1",
       "ARRAY_LENGTH(path) = path_length"
     ]
@@ -53,6 +53,7 @@ WITH conversion_sessions AS (
     c.conversion_session_id,
 
     -- Session data (including new UTM depth, click IDs, page context, privacy)
+    s.session_id,
     s.session_start,
     s.source,
     s.medium,
@@ -134,6 +135,7 @@ agg_journeys AS (
     -- Path array (ordered by session_start) with full UTM + click ID depth
     ARRAY_AGG(
       STRUCT(
+        session_id,
         session_start,
         source,
         medium,

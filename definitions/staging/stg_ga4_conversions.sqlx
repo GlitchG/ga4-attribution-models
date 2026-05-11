@@ -8,7 +8,7 @@ config {
     uniqueKey: ["user_pseudo_id", "conversion_ts", "conversion_event", "transaction_id"],
     nonNull: ["user_pseudo_id", "conversion_ts", "conversion_event"],
     rowConditions: [
-      "purchase_revenue_in_usd >= 0",
+      "purchase_revenue_in_usd IS NULL OR purchase_revenue_in_usd >= 0",
       "conversion_ts IS NOT NULL"
     ]
   }

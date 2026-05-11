@@ -72,7 +72,7 @@ WITH raw_events AS (
     ${constants.getModeledEventsFilter()}
     AND TIMESTAMP_MICROS(event_timestamp) >= TIMESTAMP_SUB(
       TIMESTAMP(PARSE_DATE('%Y%m%d', '${constants.START_DATE}')),
-      INTERVAL ${constants.LOOKBACK_DAYS} DAY
+      INTERVAL ${conversion_config.getMaxLookback()} DAY
     )
     AND TIMESTAMP_MICROS(event_timestamp) <= TIMESTAMP(PARSE_DATE('%Y%m%d', '${constants.END_DATE}'))
 ),
