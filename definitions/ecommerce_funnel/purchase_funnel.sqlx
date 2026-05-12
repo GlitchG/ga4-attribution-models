@@ -16,22 +16,35 @@ WITH funnel_events AS (
   FROM ${ref("staging", "stg_ga4_conversions")}
 ),
 stage_order AS (
-  SELECT 'add_to_cart' AS stage, 1 AS stage_num UNION ALL
-  SELECT 'begin_checkout', 2 UNION ALL
-  SELECT 'add_shipping_info', 3 UNION ALL
-  SELECT 'add_payment_info', 4 UNION ALL
-  SELECT 'purchase', 5
+  SELECT 'add_to_cart'       AS stage, 1 AS stage_num UNION ALL
+  SELECT 'begin_checkout',            2               UNION ALL
+  SELECT 'add_shipping_info',         3               UNION ALL
+  SELECT 'add_payment_info',          4               UNION ALL
+  SELECT 'purchase',                  5
+),
+-- Aggregate per stage first; window functions are applied in the outer SELECT.
+-- Mixing window functions directly over aggregates in the same query level is
+-- invalid BigQuery SQL, hence the two-step CTE approach.
+stage_agg AS (
+  SELECT
+    so.stage_num,
+    so.stage,
+    COUNT(DISTINCT f.user_pseudo_id)        AS unique_users,
+    COUNT(DISTINCT f.conversion_session_id) AS unique_sessions,
+    COUNT(*)                                AS total_events,
+    ROUND(SUM(f.purchase_revenue_in_usd), 2) AS stage_revenue_usd
+  FROM funnel_events f
+  JOIN stage_order so ON f.conversion_event = so.stage
+  GROUP BY so.stage_num, so.stage
 )
 SELECT
-  so.stage_num,
-  so.stage,
-  COUNT(DISTINCT f.user_pseudo_id) AS unique_users,
-  COUNT(DISTINCT f.conversion_session_id) AS unique_sessions,
-  COUNT(*) AS total_events,
-  ROUND(SUM(f.purchase_revenue_in_usd), 2) AS stage_revenue_usd,
-  ROUND(COUNT(DISTINCT f.user_pseudo_id) * 100.0 / NULLIF(MAX(COUNT(DISTINCT f.user_pseudo_id)) OVER (), 0), 2) AS pct_of_top_users,
-  ROUND(COUNT(DISTINCT f.conversion_session_id) * 100.0 / NULLIF(MAX(COUNT(DISTINCT f.conversion_session_id)) OVER (), 0), 2) AS pct_of_top_sessions
-FROM funnel_events f
-JOIN stage_order so ON f.conversion_event = so.stage
-GROUP BY so.stage_num, so.stage
-ORDER BY so.stage_num
+  stage_num,
+  stage,
+  unique_users,
+  unique_sessions,
+  total_events,
+  stage_revenue_usd,
+  ROUND(unique_users   * 100.0 / NULLIF(MAX(unique_users)   OVER (), 0), 2) AS pct_of_top_users,
+  ROUND(unique_sessions * 100.0 / NULLIF(MAX(unique_sessions) OVER (), 0), 2) AS pct_of_top_sessions
+FROM stage_agg
+ORDER BY stage_num

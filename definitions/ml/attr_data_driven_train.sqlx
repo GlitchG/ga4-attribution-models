@@ -91,7 +91,10 @@ CREATE OR REPLACE TABLE `${database()}.ml.attr_data_driven_train` AS (
   FROM negative_paths
 );
 
-DROP MODEL IF EXISTS `${database()}.ml.attr_data_driven_model`;
+-- Abort early if the training table is empty (e.g. date window misconfiguration)
+-- so we never silently overwrite a good model with a degenerate one.
+ASSERT (SELECT COUNT(*) FROM `${database()}.ml.attr_data_driven_train`) > 0
+  AS 'Training table is empty — check START_DATE / END_DATE in workflow_settings.yaml';
 
 CREATE OR REPLACE MODEL `${database()}.ml.attr_data_driven_model`
 OPTIONS(

@@ -9,19 +9,26 @@ Prerequisites:
 Usage:
   python create_dashboard.py --project YOUR_GCP_PROJECT --dataset-prefix attribution_models
 
-Notes:
-  - Looker Studio API is limited. This script creates the report shell, data sources,
-    and chart placeholders. Some styling and advanced bindings may need manual touch-up
-    in the UI afterward.
-  - For full programmatic control, consider the Looker Studio Community Visualizations
-    framework (dscc-scripts) instead.
+IMPORTANT — Looker Studio API availability:
+  The Looker Studio REST API ("datastudio" v1) is a restricted partner API and is
+  NOT available to the general public. Calling build("datastudio", "v1", ...) will
+  raise an HttpError 404 for most users.
+
+  Alternatives:
+    • Manual UI: open https://lookerstudio.google.com, connect to BigQuery, and
+      create the report by hand. See docs/LOOKER_STUDIO_GUIDE.md for step-by-step
+      instructions.
+    • dscc-scripts: Google's community-supported framework for programmatic report
+      creation — https://github.com/googledatastudio/tooling-samples
+
+  If you have been granted Looker Studio API partner access, remove the RuntimeError
+  below and this script will work as-is.
 """
 
 import argparse
-import json
 import sys
 
-from google.oauth2 import service_account
+import google.auth
 from googleapiclient.discovery import build
 
 
@@ -29,16 +36,9 @@ SCOPES = ["https://www.googleapis.com/auth/datastudio"]
 
 
 def get_credentials():
-    """Use Application Default Credentials (gcloud auth application-default login)."""
-    try:
-        return service_account.Credentials.from_service_account_file(
-            "/home/hermes/.hermes/bq_service_account.json", scopes=SCOPES
-        )
-    except Exception:
-        # Fallback to ADC
-        import google.auth
-        creds, _ = google.auth.default(scopes=SCOPES)
-        return creds
+    """Return Application Default Credentials (gcloud auth application-default login)."""
+    creds, _ = google.auth.default(scopes=SCOPES)
+    return creds
 
 
 def create_report(service, title: str):
@@ -104,7 +104,18 @@ def main():
     parser.add_argument("--project", required=True, help="Your GCP project ID")
     parser.add_argument("--dataset-prefix", default="attribution_models", help="BigQuery dataset name")
     parser.add_argument("--report-title", default="GA4 Attribution Models v2.0", help="Dashboard title")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Skip the Looker Studio API availability check (only use if you have partner API access)",
+    )
     args = parser.parse_args()
+
+    if not args.force:
+        raise RuntimeError(
+            "The Looker Studio REST API is not publicly available.\n"
+            "See the module docstring for alternatives, or re-run with --force if you have partner access."
+        )
 
     creds = get_credentials()
     service = build("datastudio", "v1", credentials=creds, cache_discovery=False)

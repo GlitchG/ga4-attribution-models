@@ -4,9 +4,11 @@ on:
   push:
     paths:
       - '**.sql'
+      - '**.sqlx'
   pull_request:
     paths:
       - '**.sql'
+      - '**.sqlx'
   workflow_dispatch:
 
 jobs:
@@ -23,15 +25,19 @@ jobs:
       - name: Install SQLFluff
         run: pip install sqlfluff
 
-      - name: Lint all SQL files
+      - name: Lint plain SQL files
+        # Only lint standalone-sql/ — Dataform .sqlx files contain JS template
+        # expressions (${ref(...)}, ${constants.X}, etc.) that are not valid
+        # BigQuery SQL and produce false-positive SQLFluff errors.
         run: |
-          sqlfluff lint . --dialect bigquery || true
+          sqlfluff lint standalone-sql/ --dialect bigquery
           echo "---"
-          echo "Lint complete. Review warnings above."
+          echo "Lint complete."
 
   dry-run:
     runs-on: ubuntu-latest
-    if: false  # Disabled by default — requires GCP credentials in secrets
+    # Run automatically when GCP credentials are available in repository secrets.
+    if: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -45,7 +51,7 @@ jobs:
 
       - name: Dry-run queries against BigQuery
         run: |
-          for file in $(find . -name "*.sql" -type f); do
+          for file in $(find standalone-sql/ -name "*.sql" -type f); do
             echo "Dry run: $file"
             bq query --use_legacy_sql=false --dry_run --project_id=${{ secrets.GCP_PROJECT_ID }} < "$file" \
               && echo "  OK" || echo "  FAILED"

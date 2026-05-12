@@ -22,6 +22,20 @@ const CONVERSION_EVENTS = [
     fixed_value_usd: null,
     lookback_days: 7
   },
+  {
+    event: 'add_shipping_info',
+    value_mode: 'count',
+    value_field: null,
+    fixed_value_usd: null,
+    lookback_days: 7
+  },
+  {
+    event: 'add_payment_info',
+    value_mode: 'count',
+    value_field: null,
+    fixed_value_usd: null,
+    lookback_days: 7
+  },
   // Lead-gen template — uncomment and edit per client:
   // {
   //   event: 'generate_lead',

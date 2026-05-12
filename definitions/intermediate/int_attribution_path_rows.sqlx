@@ -5,8 +5,8 @@ config {
   tags: ["intermediate", "daily"],
   description: "Row-level unnested paths for attribution models. Each row = one session in a conversion journey. Includes full UTM depth, click IDs, page context, and privacy fields.",
   assertions: {
-    uniqueKey: ["user_pseudo_id", "conversion_id", "session_start"],
-    nonNull: ["user_pseudo_id", "conversion_id", "session_start", "channel"],
+    uniqueKey: ["user_pseudo_id", "conversion_id", "session_id"],
+    nonNull: ["user_pseudo_id", "conversion_id", "session_id", "session_start", "channel"],
     rowConditions: [
       "session_position_asc >= 1",
       "session_position_desc >= 1"
@@ -50,6 +50,7 @@ SELECT
   j.path_length,
 
   -- Session-level fields (full UTM depth + click IDs + page context + privacy)
+  tp.session_id,
   tp.session_start,
   tp.source,
   tp.medium,
