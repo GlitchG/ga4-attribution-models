@@ -1,7 +1,7 @@
-# Looker Studio Visualization Guide — GA4 Attribution Models
+# DATA Studio Visualization Guide — GA4 Attribution Models
 
 **Project:** GA4 Attribution Models (Dataform Edition)
-**Audience:** Marketing analysts comfortable with Looker Studio's UI
+**Audience:** Marketing analysts comfortable with Data Studio's UI
 **Prerequisites:** Dataform pipeline has been run successfully; tables exist in your BigQuery project
 **Throughout this guide:** Replace `marketingdataanalyst` in the SQL snippets with your own GCP project ID (the value of `defaultProject` in `workflow_settings.yaml`).
 
@@ -9,7 +9,7 @@
 
 ## Dashboard Overview
 
-This guide shows you how to build a three-page Looker Studio dashboard from the Dataform output.
+This guide shows you how to build a three-page Data Studio dashboard from the Dataform output.
 
 **Page 1 — Attribution Comparison:** The "CEO slide". Compare how channel importance shifts across all 8 models.  
 **Page 2 — Funnel & Abandonment:** Visualise drop-off from add_to_cart to purchase.  
@@ -37,18 +37,18 @@ Or run everything at once: `dataform run`.
 
 ### Cost Notes
 
-- Looker Studio queries BigQuery **live** every time someone opens the dashboard
+- Data Studio queries BigQuery **live** every time someone opens the dashboard
 - The dashboard views (`dashboard.*`) read from materialised tables, not raw GA4 events — trivial cost
 - Set cache freshness to **4 hours** to reduce repeated queries
 - For scheduled PDF delivery, the snapshot queries run once at schedule time
 
 ---
 
-## 1. Connecting BigQuery to Looker Studio
+## 1. Connecting BigQuery to Data Studio
 
 ### 1.1 Create a New Report
 
-1. Go to [lookerstudio.google.com](https://lookerstudio.google.com)
+1. Go to [Datastudio.google.com](https://Datastudio.google.com)
 2. Click **+ Create** → **Report**
 3. You'll be prompted to add a data source first
 
@@ -71,7 +71,7 @@ You'll add **three** data sources, each pointing to a dashboard view:
 > ```
 > Custom queries let you add WHERE clauses later without modifying the pipeline. Replace `marketingdataanalyst` with your GCP project ID.
 
-Click **Add**. Looker Studio will show a preview of ~58K rows with columns: `model`, `channel`, `conversion_id`, `conversion_event`, `conversion_ts`, `value_mode`, `transaction_id`, `attributed_credit`, `attributed_value_usd`, `attributed_value_local`, `aov_usd`, `source`, `medium`, `campaign`, `path_length`, etc.
+Click **Add**. Data Studio will show a preview of ~58K rows with columns: `model`, `channel`, `conversion_id`, `conversion_event`, `conversion_ts`, `value_mode`, `transaction_id`, `attributed_credit`, `attributed_value_usd`, `attributed_value_local`, `aov_usd`, `source`, `medium`, `campaign`, `path_length`, etc.
 
 #### Data Source 2: Funnel
 
@@ -374,7 +374,7 @@ Add a filter control for `path_length` so users can see how mobile vs. desktop d
 3. Click the dimension, select **Sort** → `stage_num` → Ascending
 4. This ensures the funnel reads top-to-bottom in logical order (add_to_cart → begin_checkout → add_shipping_info → add_payment_info → purchase)
 
-*Note:* Looker Studio's Funnel chart requires stages to be in the correct order. If your stages appear out of order, create a calculated field:
+*Note:* Data Studio's Funnel chart requires stages to be in the correct order. If your stages appear out of order, create a calculated field:
 ```
 CASE 
   WHEN stage = 'add_to_cart' THEN 1
@@ -437,12 +437,12 @@ With `funnel_dashboard`, use the pre-calculated `pct_of_top_users` field instead
 
 ### 7.1 Sankey Diagram
 
-*Looker Studio does not have a native Sankey chart.* Options:
+*Data Studio does not have a native Sankey chart.* Options:
 
 **Option A — Community Visualization (Recommended)**
 
 1. Click **Add a chart** → scroll to **Community visualizations**
-2. Search for "Sankey" — install a community Sankey visualization (e.g., "Sankey Diagram" by Looker Studio team or a popular third-party one)
+2. Search for "Sankey" — install a community Sankey visualization (e.g., "Sankey Diagram" by Data Studio team or a popular third-party one)
 3. Configure:
 
 | Setting | Value |
@@ -481,7 +481,7 @@ Apply conditional formatting (gradient) — this gives a similar visual result t
 **Option C — Export to Flourish / Datawrapper**
 
 For publication-quality Sankeys:
-1. Create a table in Looker Studio with `channel`, `model`, `SUM(attributed_value_usd)`
+1. Create a table in Data Studio with `channel`, `model`, `SUM(attributed_value_usd)`
 2. Export as CSV
 3. Import into [Flourish](https://flourish.studio/) or [SankeyMATIC](https://sankeymatic.com/)
 
@@ -571,7 +571,7 @@ Add this as a percentage column to confirm each model accounts for 12.5% (1/8) o
 | Metric | `SUM(attributed_value_usd)` |
 | Breakdown | `model` |
 
-> **Important:** Make sure `conversion_ts` is recognized as a Date/Time field. If Looker Studio treats it as text, click the field → **Type** → **Date & Time** → **Date**.
+> **Important:** Make sure `conversion_ts` is recognized as a Date/Time field. If Data Studio treats it as text, click the field → **Type** → **Date & Time** → **Date**.
 
 *What you'll see:* Eight lines tracking daily attributed revenue. On any given day, the 8 lines should be identical (same total revenue, different only in how it's split across channels within each model). Differences indicate data issues.
 
@@ -618,7 +618,7 @@ This shows whether the "attribution gap" between First Click and Last Click wide
 | Dimension | `conversion_ts` (ISO Week) |
 | Metric | `wow_revenue_change` (formatted as %) |
 
-*Note:* The Looker Studio `SUM(metric, -N)` function applies a time offset. `-7` means "7 days ago."
+*Note:* The Data Studio `SUM(metric, -N)` function applies a time offset. `-7` means "7 days ago."
 
 ---
 
@@ -693,7 +693,7 @@ Now clicking "Organic Search" in the bar chart will filter the time series and p
 
 ### 11.1 Data Freshness
 
-Looker Studio uses **live connections** to BigQuery. Every time someone views the dashboard, it queries BigQuery.
+Data Studio uses **live connections** to BigQuery. Every time someone views the dashboard, it queries BigQuery.
 
 | Refresh Setting | How to Set |
 |-----------------|------------|
@@ -712,7 +712,7 @@ Looker Studio uses **live connections** to BigQuery. Every time someone views th
    - **Owner:** Full control (you)
 4. **Link sharing:** Toggle to "Anyone with the link can view" for broad distribution
 
-> **Important:** Viewers do NOT need BigQuery access. Looker Studio uses the report owner's credentials to query BigQuery. Viewers see charts only — they cannot run arbitrary queries against your data.
+> **Important:** Viewers do NOT need BigQuery access. Data Studio uses the report owner's credentials to query BigQuery. Viewers see charts only — they cannot run arbitrary queries against your data.
 
 ### 11.3 Download Options
 
@@ -724,7 +724,7 @@ To download the full underlying dataset, use the **Data** tab → **Export**.
 
 ### 11.4 Scheduling PDF / Email Delivery
 
-Looker Studio supports scheduled email delivery:
+Data Studio supports scheduled email delivery:
 
 1. Click the **dropdown arrow** next to the Share button → **Schedule delivery**
 2. Set frequency: daily, weekly, monthly
@@ -746,7 +746,7 @@ To embed the dashboard in a webpage or internal portal:
 | Concern | Solution |
 |---------|----------|
 | Dashboard queries are expensive | Set cache freshness to 4+ hours; use aggregate tables |
-| Too many viewers hitting BigQuery | Looker Studio caches per-user — reasonable |
+| Too many viewers hitting BigQuery | Data Studio caches per-user — reasonable |
 | Raw data scans are costly | Use the `dashboard.*` views (they read from materialized tables, not raw GA4 events) |
 
 The `dashboard.attribution_dashboard` and `cross_channel_comparison` views query materialized tables (~58K rows for the mart, ~56 rows for the comparison). These are **trivially cheap** — expect cents per month even with frequent viewing.
@@ -760,7 +760,7 @@ The `dashboard.attribution_dashboard` and `cross_channel_comparison` views query
 | Date filter shows wrong range | `conversion_ts` field type is Text | Edit data source → change `conversion_ts` type to Date & Time |
 | Revenue totals differ between models | Normal — each model distributes the SAME total revenue differently across channels | Verify `SUM(attributed_value_usd)` per model matches; if not, check UNION in mart |
 | Charts show "Data Studio can't display this field" | Aggregation conflict | Set field aggregation explicitly (SUM, AVG, etc.) in the Data tab |
-| Funnel chart stages out of order | Looker Studio sorts alphabetically | Set custom sort using `stage_num` field |
+| Funnel chart stages out of order | Data Studio sorts alphabetically | Set custom sort using `stage_num` field |
 
 ---
 
@@ -879,7 +879,7 @@ SELECT
   total_value_usd,
   total_credit,
   avg_attributed_value_usd AS avg_value_per_credit
-  -- Calculate shares as derived fields in Looker Studio instead
+  -- Calculate shares as derived fields in Data Studio instead
 FROM `marketingdataanalyst.attribution_models.cross_channel_comparison`
 ORDER BY model, conversion_event, total_value_usd DESC
 ```
