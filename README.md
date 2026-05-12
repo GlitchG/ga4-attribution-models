@@ -3,14 +3,14 @@
 Eight attribution models in **Dataform** (BigQuery-native), runnable on Google's public GA4 sample dataset. No setup beyond a free Google Cloud account.
 
 **Architecture:** Session-based, not event-based. The Dataform pipeline:
-- Extracts sessions using **auto source extraction** (session_stslc > collected > event_params)
-- Extracts **all conversion events with full ecommerce data** (revenue, items, transaction_id, shipping, tax, refund, coupon, device, geo)
+- Extracts sessions with a **configurable source-extraction mode** — `event_params` (default, works on every GA4 export including the public sample), `session_stslc` (post-2024-07 exports), `collected` (post-2023-06 exports), or `auto` (COALESCE chain that requires the newer fields)
+- Extracts **all conversion events with full ecommerce data** (revenue, items, transaction_id, shipping, tax, refund, device, geo)
 - Builds deduplicated ordered user journeys with `ARRAY_AGG`
 - Applies a **per-conversion-type lookback window** (configurable per event)
-- Supports **multi-conversion**: purchase, begin_checkout, add_to_cart, leads, signups — add events in one config file
+- Supports **multi-conversion**: purchase, begin_checkout, add_to_cart, add_shipping_info, add_payment_info, leads, signups — add events in one config file
 - Uses **19-channel normalization** including Paid Search Brand vs Non-Brand, Cross-network, Paid Video, Organic Shopping, Unknown
-- **Zero duplicates**: sessions deduped by `user_pseudo_id + session_id`, conversions by `user_pseudo_id + timestamp + transaction_id`, paths by journey aggregation
-- **Privacy-ready**: pass-through of consent mode v2 fields + optional modeled-events exclusion
+- **Zero duplicates**: sessions deduped by `user_pseudo_id + session_id`, conversions by `user_pseudo_id + timestamp + transaction_id`, paths by `(user_pseudo_id, conversion_id, session_id)`
+- **Privacy-ready**: optional pass-through of consent mode v2 fields (gated by `has_privacy_info`) + optional modeled-events exclusion
 
 ---
 
@@ -87,18 +87,23 @@ docs/
 ```bash
 git clone https://github.com/GlitchG/ga4-attribution-models.git
 cd ga4-attribution-models
-npm install
 
-# Auth (pick one)
+# Install the Dataform CLI (one-time, global)
+npm install -g @dataform/cli
+
+# Auth — Application Default Credentials work for local runs
 gcloud auth application-default login
-echo '{"projectId":"YOUR_PROJECT","location":"US","credentials":"BASE64_JSON"}' > .df-credentials.json
 
-# Configure workflow_settings.yaml, then:
+# REQUIRED: open workflow_settings.yaml and replace `your-gcp-project-id`
+# with the GCP project you want to write the output tables to.
+
 dataform compile
-dataform run --default-database=YOUR_PROJECT
+dataform run --default-database=YOUR_PROJECT_ID
 ```
 
-The pipeline defaults to the **public GA4 sample dataset** (`bigquery-public-data.ga4_obfuscated_sample_ecommerce`). First run: ~9 minutes, ~3.4 GiB processed, ~$0.02.
+The pipeline defaults to the **public GA4 sample dataset** (`bigquery-public-data.ga4_obfuscated_sample_ecommerce`, 2020-11-01 → 2021-01-31). First run: ~12 minutes, ~6 GiB processed, ~$0.04.
+
+Running from the **Dataform UI in Google Cloud** (no local CLI needed)? See [docs/USAGE_GUIDE.md §2 — GCP Dataform UI](docs/USAGE_GUIDE.md#2-quick-start).
 
 ---
 
@@ -120,8 +125,8 @@ The pipeline defaults to the **public GA4 sample dataset** (`bigquery-public-dat
 | Models compared | 8 side-by-side | 1 at a time |
 | Conversion events | Any event, configurable | Purchase only |
 | Value modes | Revenue / fixed / count | Revenue only |
-|| Channels | 19 (brand split + Unknown) | 8 |
-| Source extraction | Auto-adapts to export version | Manual, breaks on schema changes |
+| Channels | 19 (brand split + Unknown) | 8 |
+| Source extraction | Configurable per export version | Manual, breaks on schema changes |
 | Standalone SQL | Included | Not provided |
 | Cost / ROAS | Optional module | Not included |
 
