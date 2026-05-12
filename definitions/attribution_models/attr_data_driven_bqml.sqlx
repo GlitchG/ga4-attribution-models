@@ -53,7 +53,10 @@ WITH base_features AS (
   GROUP BY 1, 2, 3
 ),
 
--- Predict with ALL channels
+-- Predict with ALL channels.
+-- ML.PREDICT passes every column from its input subquery through to its output,
+-- so the dimension columns (conversion_event, conversion_value_usd, etc.) are
+-- listed in the inner SELECT — otherwise the outer SELECT can't reference them.
 pred_all AS (
   SELECT
     user_pseudo_id,
@@ -72,6 +75,8 @@ pred_all AS (
     MODEL `${database()}.ml.attr_data_driven_model`,
     (SELECT
        user_pseudo_id, conversion_id,
+       conversion_event, conversion_value_usd, conversion_value_local,
+       conversion_ts, transaction_id, path_length, source, medium, campaign,
        has_paid_search_brand, has_paid_search_non_brand, has_paid_social,
        has_organic_social, has_organic_search, has_paid_video, has_organic_video,
        has_display, has_email, has_referral, has_affiliate, has_direct,
