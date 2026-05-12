@@ -49,8 +49,8 @@ If you used v1.x, here is what is new:
 |---|---|---|
 | Conversion events | Hardcoded `purchase` only | Configure any event in one file |
 | Value tracking | Revenue only | Revenue, fixed value, or count only |
-|| Channels | 8 | 19 (including brand split + Unknown) |
-| Source extraction | Manual `event_params` only | Auto mode that adapts to your export version |
+| Channels | 8 | 19 (including brand split + Unknown) |
+| Source extraction | Manual `event_params` only | Mode-switchable: `event_params` / `session_stslc` / `collected` / `auto` |
 | Click IDs | None | gclid, dclid, srsltid, and more |
 | Privacy fields | None | Consent mode v2 passthrough |
 | Column names | `purchase_revenue` | `conversion_value_usd` (event-agnostic) |
@@ -175,39 +175,50 @@ GA4 events_* → stg_ga4_sessions + stg_ga4_conversions
 const CONVERSION_EVENTS = [
   {
     event: 'purchase',
-    value_mode: 'revenue',   // Uses purchase_revenue_in_usd
-    description: 'Completed purchase'
+    value_mode: 'revenue',                    // 'revenue' | 'fixed' | 'count'
+    value_field: 'purchase_revenue_in_usd',
+    fixed_value_usd: null,
+    lookback_days: 30
   },
   {
     event: 'begin_checkout',
-    value_mode: 'count',     // No revenue; counts conversions only
-    description: 'Checkout started'
+    value_mode: 'count',
+    value_field: null,
+    fixed_value_usd: null,
+    lookback_days: 14
   },
   {
     event: 'add_to_cart',
     value_mode: 'count',
-    description: 'Item added to cart'
-  }
+    value_field: null,
+    fixed_value_usd: null,
+    lookback_days: 7
+  },
+  { event: 'add_shipping_info', value_mode: 'count', value_field: null, fixed_value_usd: null, lookback_days: 7 },
+  { event: 'add_payment_info',  value_mode: 'count', value_field: null, fixed_value_usd: null, lookback_days: 7 }
 ];
 ```
 
 **Value modes:**
-- `revenue` — Uses `purchase_revenue_in_usd` (or event-specific revenue field)
-- `fixed` — Assigns a fixed value per conversion (configure in `getValueExpr()`)
-- `count` — No monetary value; `attributed_value_usd` will be NULL
+- `revenue` — Uses the column named in `value_field` (e.g. `purchase_revenue_in_usd`).
+- `fixed` — Assigns `fixed_value_usd` per conversion (set the dollar amount in the same struct).
+- `count` — No monetary value; `attributed_value_usd` is `NULL`. Useful for micro-conversions like add-to-cart.
+
+**Per-event lookback:** Each event has its own `lookback_days` — e.g. give purchases 30 days, but only 7 days to add-to-cart. The pipeline picks the max across all events for partition pruning.
 
 **To add a new conversion:**
-1. Append to `CONVERSION_EVENTS` array
-2. Choose `value_mode`
-3. Recompile — no SQL changes needed
+1. Append a struct to `CONVERSION_EVENTS`.
+2. Choose `value_mode` and (if `revenue` or `fixed`) the relevant field.
+3. Recompile — no SQL changes needed.
 
 **Example — adding a lead form submission:**
 ```javascript
 {
   event: 'generate_lead',
   value_mode: 'fixed',
-  fixed_value: 25.00,
-  description: 'Lead form submitted'
+  value_field: null,
+  fixed_value_usd: 25.00,
+  lookback_days: 7
 }
 ```
 
@@ -252,7 +263,7 @@ vars:
 
 | Mode | Use when | Description |
 |---|---|---|
-|| `event_params` (effective default) | Any export | Extracts source/medium from event-level `event_params`. Works on all GA4 exports. |
+| `event_params` (default) | Any export | Extracts source/medium from event-level `event_params`. Works on all GA4 exports. |
 | `session_stslc` | Post-2024-07 exports | Uses `session_traffic_source_last_click` (GA4 UI-native logic). |
 | `collected` | Post-2023-06 exports | Uses `collected_traffic_source` (manual override values). |
 | `auto` | Post-2024-07 exports | `COALESCE(session_stslc, collected, event_params)` — falls through gracefully. |
@@ -373,11 +384,14 @@ Pre-aggregated for dashboards. One row per model × conversion_event × channel.
 |---|---|
 | `model` | Attribution model |
 | `conversion_event` | Conversion event name |
+| `value_mode` | `revenue`, `fixed`, or `count` (from `conversion_config.js`) |
 | `channel` | Channel |
-| `attributed_conversions` | Number of conversions |
-| `total_value_local` | Sum of attributed local currency |
+| `attributed_conversions` | Distinct `conversion_id` count |
+| `total_credit` | Sum of `attributed_credit` for the segment |
 | `total_value_usd` | Sum of attributed USD |
-| `avg_path_length` | Average path length for this segment |
+| `total_value_local` | Sum of attributed local currency |
+| `avg_attributed_value_usd` | `SUM(attributed_value_usd) / NULLIF(SUM(attributed_credit), 0)` — `NULL` for count-mode events |
+| `avg_attributed_value_local` | Same but in local currency |
 
 ### 6.3 `int_attribution_journeys`
 
@@ -409,8 +423,8 @@ LIMIT 10;
 | `attr_last_non_direct_click` | Last touch, ignoring Direct | Standard Google Analytics view |
 | `attr_linear` | Equal credit to every touch | Long B2B sales cycles |
 | `attr_time_decay` | More credit to recent touches | Promotional campaigns |
-|| `attr_position_weighted` | 50% first, 30% last, 20% middle | Data-driven heuristic proxy |
-|| `attr_u_shape` | 40% first, 40% last, 20% middle | Balanced first/last emphasis |
+| `attr_position_weighted` | 50% first, 30% last, 20% middle | Data-driven heuristic proxy |
+| `attr_u_shape` | 40% first, 40% last, 20% middle (normalised 50/50 for 2-session paths) | Balanced first/last emphasis |
 | `attr_data_driven_bqml` | ML-learned credit allocation | When you have enough data (1,000+ conversions) |
 
 ---
@@ -435,14 +449,14 @@ Trains a logistic regression model on:
 - **Positive class:** Users who converted (binary channel flags from their journey)
 - **Negative class:** Users who had sessions but did NOT convert
 
-Features: `conversion_event` (categorical) + 17 binary channel flags.
+Features: **19 binary channel flags** (the same 19 channels listed in §4.2). `conversion_event` is intentionally **not** a feature so the model doesn't mix signal between, say, purchases and add-to-carts (see [CHANGELOG v2.0 decision #3](../CHANGELOG.md)). The training table is built by `definitions/ml/attr_data_driven_train.sqlx`, which fires an `ASSERT row_count > 0` guard before running `CREATE OR REPLACE MODEL` so an empty date window can't silently produce a degenerate model.
 
-**Credit assignment:** For each touchpoint in a converted journey, the model's predicted conversion probability is compared with and without that channel. The difference is the marginal contribution.
+**Credit assignment (feature ablation):** For each channel in a converted journey, the model's predicted conversion probability is compared with and without that channel flag. The non-negative delta (`GREATEST(prob_all - prob_without, 0)`) is the channel's removal effect; per-conversion credit shares normalise these so they sum to 1.0 across the journey's channels. When every removal effect is zero, the fallback distributes `1/19` equally across all 19 channels (carried at full precision until the final `ROUND(credit_share, 6)`).
 
 **Known limitations:**
 - Single model trained on all conversion events. If funnel stages have very different channel effects, consider per-conversion-event models (v2.1 roadmap).
-- Requires sufficient training data (recommended: >1,000 conversions, >10,000 non-converters).
-- Model training can take 2–5 minutes.
+- Requires sufficient training data (recommended: >1,000 conversions, >10,000 non-converters). On the public sample (~3 months of obfuscated traffic) BQML produces directionally useful but noisy weights — fine for demo, not for production decisions.
+- Model training takes 2–5 minutes.
 
 ---
 
@@ -574,10 +588,12 @@ This is intentional — it distinguishes "no spend" from "zero return". Organic 
 
 The pipeline includes Dataform assertions on:
 
-- `stg_ga4_sessions` — unique key on `(user_pseudo_id, session_id)`
-- `stg_ga4_conversions` — unique key on `(user_pseudo_id, event_timestamp, event_name)`; row conditions on `conversion_value_usd >= 0`
-- `int_attribution_journeys` — unique key on `(user_pseudo_id, conversion_ts, conversion_event)`; row conditions on `conversion_value_usd >= 0`, `path_length >= 1`, `ARRAY_LENGTH(path) = path_length`
-- `int_attribution_path_rows` — unique key on `(user_pseudo_id, conversion_id, session_position_asc)`
+- `stg_ga4_sessions` — uniqueKey on `(user_pseudo_id, session_id)`
+- `stg_ga4_conversions` — uniqueKey on `(user_pseudo_id, conversion_ts, conversion_event, transaction_id)`; rowConditions `purchase_revenue_in_usd IS NULL OR purchase_revenue_in_usd >= 0` and `conversion_ts IS NOT NULL`
+- `int_attribution_journeys` — uniqueKey on `(user_pseudo_id, conversion_ts, conversion_event, transaction_id)`; rowConditions `conversion_value_usd IS NULL OR conversion_value_usd >= 0`, `path_length >= 1`, `ARRAY_LENGTH(path) = path_length`
+- `int_attribution_path_rows` — uniqueKey on `(user_pseudo_id, conversion_id, session_id)`; `session_id`, `session_start`, and `channel` are non-null; `session_position_asc/desc >= 1`
+
+The `IS NULL OR ... >= 0` pattern is intentional: for count-mode conversion events (`begin_checkout`, `add_to_cart`, etc.) the revenue columns are `NULL`, and BigQuery evaluates `NULL >= 0` as `NULL`, not `TRUE` — without the explicit `IS NULL` branch the assertion would fail on every non-purchase row.
 
 ### 10.2 Post-run validation queries
 
@@ -599,9 +615,11 @@ Key checks:
 The public sample (`bigquery-public-data.ga4_obfuscated_sample_ecommerce`) is pre-configured as the default. Use it to verify your setup before connecting to private data.
 
 **Known public sample quirks:**
-- Source/medium values are anonymised: `<Other>`, `(data deleted)` — mapped to `Direct`
-- No consent mode v2 fields (2020 dataset)
-- No `session_traffic_source_last_click` (use `event_params` mode)
+- Source/medium values are anonymised: `<Other>`, `(data deleted)` — mapped to the `Unknown` channel (the 19th entry in `getChannelList()`), so BQML feature engineering stays consistent.
+- No `privacy_info` struct (introduced in 2023). Keep `has_privacy_info: "false"` — otherwise the staging query fails with `Unrecognized name: privacy_info`. The privacy passthrough columns are emitted as `NULL`.
+- No `session_traffic_source_last_click` or `collected_traffic_source` (introduced 2023-06 / 2024-07). Keep `source_extraction_mode: "event_params"` — the `auto`, `session_stslc`, and `collected` modes will all fail against the 2020 sample.
+- Brand vs Non-Brand paid search will all be "Non-Brand" until you set a real `brand_terms_regex` — the default placeholder regex `your-brand-here|yourbrand` matches nothing in the sample.
+- BQML weights will be noisy because the sample is small and obfuscated. Use the public-sample run to validate the pipeline mechanics, not to draw marketing conclusions.
 
 ---
 
@@ -620,11 +638,11 @@ The public sample (`bigquery-public-data.ga4_obfuscated_sample_ecommerce`) is pr
 
 | Error | Cause | Fix |
 |---|---|---|
-| `attr_data_driven_train` fails with "empty training data" | `int_attribution_path_rows` has no rows | Check `stg_ga4_conversions` has data; verify `_TABLE_SUFFIX` range |
+| `attr_data_driven_train` fails with `Training table is empty — check START_DATE / END_DATE` | The `ASSERT` guard in the operations script caught a zero-row training table. Usually means `start_date`/`end_date` are outside the GA4 export window | Widen the date range in `workflow_settings.yaml` and re-run `dataform run --tags=ml --full-refresh` |
 | `int_attribution_journeys` is empty | No conversions in the date range | Extend `start_date`/`end_date`; check conversion events are configured |
 | Attribution credit sums to <1.0 | Path-length edge case in U-shape/position_weighted | Already fixed in v2.0; update if on older version |
 | `last_non_direct_click` drops conversions | Logic bug with `session_position_desc` | Already fixed in v2.0; update if on older version |
-| Channel shows as "source / medium" | Catch-all triggered — unknown source/medium combination | Add channel mapping in `channel_grouping.js` |
+| Many sessions show channel `Unknown` on the public sample | Expected: the public sample anonymises `source` to `<Other>` / `(data deleted)`, which the catch-all maps to `Unknown` so BQML feature engineering stays consistent | No action — confirm with `SELECT channel, COUNT(*) FROM dashboard.attribution_dashboard GROUP BY 1`. For real client data, add the missing source/medium combinations to `channel_grouping.js` |
 
 ### 11.3 Data quality issues
 

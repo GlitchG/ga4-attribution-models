@@ -4,6 +4,36 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.0.2] — 2026-05-12
+
+### Fixed (pipeline)
+- **`purchase_funnel.sqlx`** — window functions can't wrap aggregates at the same query level in BigQuery; split the aggregation into a `stage_agg` CTE and apply `MAX(...) OVER ()` in the outer SELECT. Funnel previously crashed at runtime.
+- **`stg_ga4_conversions.sqlx`** & **`int_attribution_journeys.sqlx`** — `rowConditions` now use `IS NULL OR <expr> >= 0` instead of bare `>= 0`. BigQuery evaluates `NULL >= 0` as `NULL` (not `TRUE`), so non-purchase rows with `NULL` revenue were firing the assertion on every run.
+- **`stg_ga4_sessions.sqlx`** — single source of truth for the lookback window: the `event_timestamp` filter now uses `conversion_config.getMaxLookback()` (same as the `_TABLE_SUFFIX` filter) instead of the separate `constants.LOOKBACK_DAYS` knob that could silently drift.
+- **`int_attribution_journeys.sqlx`** & **`int_attribution_path_rows.sqlx`** — added `session_id` to the path `STRUCT` and switched the `uniqueKey` to `(user_pseudo_id, conversion_id, session_id)`. Previously keyed on `session_start` (a timestamp), which could collide for high-traffic seconds.
+- **`attr_data_driven_bqml.sqlx`** — three bugs:
+  - `GROUP BY 1,2,3,4,5` included `conversion_value_usd` and `conversion_value_local`, so float-precision divergence between value-columns of the same conversion could produce duplicate `conversion_id` rows that inflated all downstream attribution. Now `GROUP BY 1,2,3` with `ANY_VALUE()` on value columns.
+  - Fallback credit `ROUND(1.0 / 19, 4) = 0.0526` summed across 19 channels to 0.9994, losing 0.06% of attribution per zero-effect conversion. Now carries full precision through the `credited` CTE and rounds to 6 decimals only at output.
+  - Removed the redundant `WHERE credit_share > 0` in the final SELECT (already enforced upstream).
+- **`attr_data_driven_train.sqlx`** — added `ASSERT (SELECT COUNT(*) FROM training_table) > 0` before `CREATE OR REPLACE MODEL` so an empty date window can't silently train a degenerate model. Removed the now-redundant `DROP MODEL IF EXISTS`.
+- **`cart_abandonment.sqlx`** — removed trailing comma after the last `config` property (parse hazard on some Dataform runtime versions).
+- **`channel_grouping.js`** — the catch-all `ELSE` returned a free-form `CONCAT(source, ' / ', medium)` string that never matched any of the 19 entries in `getChannelList()`, so unclassified traffic was effectively absent from BQML feature engineering. Now returns `'Unknown'`.
+- **`cross_channel_comparison.sqlx`** — `avg_order_value_{usd,local}` renamed to `avg_attributed_value_{usd,local}`. "Order value" was misleading for count-mode events that carry `NULL` attributed value.
+
+### Added
+- **`add_shipping_info` and `add_payment_info`** registered as count-mode conversion events in `conversion_config.js`. Without them, stages 3 and 4 of `purchase_funnel.sqlx` silently produced zero rows because the events were never extracted into `stg_ga4_conversions`.
+- **`attr_u_shape.sqlx`** — description now documents the actual behaviour: 1-session = 100%, 2-session = normalised 50/50, 3+-session = 40/40/20.
+
+### Fixed (CI / scripts)
+- **`.github/workflows/test-sql.yml`** — SQLFluff now lints only `standalone-sql/` (plain SQL). Dataform `.sqlx` files contain JS template expressions (`${ref(...)}`, etc.) that aren't valid BigQuery SQL and produced false positives that were swallowed by `|| true`. Dry-run job now runs automatically when `GCP_SERVICE_ACCOUNT_KEY` is configured instead of being hardcoded `if: false`. Triggers extended to `.sqlx` files.
+- **`looker-studio/create_dashboard.py`** — removed hardcoded `/home/hermes/...` service-account path; credentials now via ADC only. Added `RuntimeError` with documentation that the Looker Studio REST API is partner-only (`--force` escape hatch for users who have partner access).
+
+### Changed (docs / public-sample readiness)
+- **`workflow_settings.yaml`** — `defaultProject` is now the placeholder `your-gcp-project-id` (was a personal project name that would fail for everyone else). End date extended from `20201220` → `20210131` so all public-sample partitions are available. Inline comments explain every var.
+- **`README.md`** — fixed misleading claim that `auto` source extraction was the default (it's `event_params`; `auto` doesn't work on the public sample). Fixed `||` (double-pipe) artifacts in the comparison table. Quick Start now uses `npm install -g @dataform/cli` and explicitly requires editing `defaultProject` before running.
+- **`docs/USAGE_GUIDE.md`** — rewrote the `CONVERSION_EVENTS` example to use the real field names (`value_field`, `fixed_value_usd`, `lookback_days`). Updated BQML section to describe the actual 19-flag model (not the stale "17 channels + conversion_event"). Refreshed §10.1 with the current assertion definitions. Documented every public-sample quirk users will hit. Removed `||` formatting artifacts.
+- **`docs/LOOKER_STUDIO_GUIDE.md`** — added a header note that all `marketingdataanalyst` strings in SQL snippets must be replaced with the reader's own project ID. Updated the example custom query to use the renamed `avg_attributed_value_usd` column.
+
 ## [2.0.1] — 2026-05-08
 
 ### Fixed

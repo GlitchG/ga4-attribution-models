@@ -1,14 +1,52 @@
-dataformCoreVersion: "3.0.55"
-defaultProject: marketingdataanalyst
-defaultLocation: US
+# Dataform project configuration.
+#
+# REQUIRED — change `defaultProject` to your own GCP project ID before running.
+# The defaults below are wired to the public GA4 sample dataset, so the only
+# thing you have to edit to do a first run is `defaultProject`.
+#
+# Override any var from the CLI with `--vars key=value` or from the Dataform UI
+# workspace settings.
+
+dataformCoreVersion: "3.0.55"          # Dataform Core 3.0 LTS line — bump to the
+                                       # latest 3.x patch when upgrading.
+defaultProject: your-gcp-project-id    # <-- REPLACE with your project ID
+defaultLocation: US                    # use "US" multi-region for the public sample
 defaultDataset: attribution_models
 defaultAssertionDataset: attribution_assertions
+
 vars:
-  start_date: "20201101"
-  end_date: "20201220"
+  # ── Source dataset (public GA4 sample by default) ─────────────────────────
   ga4_project: "bigquery-public-data"
   ga4_dataset: "ga4_obfuscated_sample_ecommerce"
+
+  # ── Date range ────────────────────────────────────────────────────────────
+  # The public sample covers 2020-11-01 → 2021-01-31. Defaults below scan the
+  # full window so all funnel stages, BQML training, and conversion paths have
+  # meaningful volume. For your own GA4 export, narrow this to a realistic
+  # window (start with the last 30–90 days).
+  start_date: "20201101"
+  end_date:   "20210131"
+
+  # ── Lookback ──────────────────────────────────────────────────────────────
+  # Maximum attribution window in days. Per-event lookbacks live in
+  # includes/conversion_config.js (e.g. purchase=30, add_to_cart=7).
   lookback_days: "30"
+
+  # ── Source/medium resolution mode ─────────────────────────────────────────
+  # event_params  — works on all GA4 exports (REQUIRED for the public sample,
+  #                 which predates the newer fields). DEFAULT.
+  # session_stslc — uses session_traffic_source_last_click (post-2024-07 export only)
+  # collected     — uses collected_traffic_source (post-2023-06 export only)
+  # auto          — COALESCE chain; requires post-2024-07 export
   source_extraction_mode: "event_params"
-  exclude_modeled_events: "false"
+
+  # ── Consent mode v2 / privacy ─────────────────────────────────────────────
+  # Set "true" only if your GA4 export contains the privacy_info struct
+  # (introduced 2023+). The 2020 public sample does NOT have it, so leave
+  # "false" or the staging query will fail with "Unrecognized name: privacy_info".
   has_privacy_info: "false"
+
+  # ── Modeled-events filter ─────────────────────────────────────────────────
+  # When "true", excludes sessions where privacy_info.uses_transient_token = 'Yes'.
+  # Only meaningful when has_privacy_info is also "true".
+  exclude_modeled_events: "false"
