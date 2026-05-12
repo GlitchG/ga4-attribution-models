@@ -1,8 +1,9 @@
 # Looker Studio Visualization Guide — GA4 Attribution Models
 
-**Project:** GA4 Attribution Models (Dataform Edition)  
-**Audience:** Marketing analysts comfortable with Looker Studio's UI  
+**Project:** GA4 Attribution Models (Dataform Edition)
+**Audience:** Marketing analysts comfortable with Looker Studio's UI
 **Prerequisites:** Dataform pipeline has been run successfully; tables exist in your BigQuery project
+**Throughout this guide:** Replace `marketingdataanalyst` in the SQL snippets with your own GCP project ID (the value of `defaultProject` in `workflow_settings.yaml`).
 
 ---
 
@@ -874,10 +875,10 @@ SELECT
   model,
   conversion_event,
   channel,
-  attributed_conversions as total_conversions,
+  attributed_conversions AS total_conversions,
   total_value_usd,
   total_credit,
-  avg_order_value_usd as avg_order_value,
+  avg_attributed_value_usd AS avg_value_per_credit
   -- Calculate shares as derived fields in Looker Studio instead
 FROM `marketingdataanalyst.attribution_models.cross_channel_comparison`
 ORDER BY model, conversion_event, total_value_usd DESC
