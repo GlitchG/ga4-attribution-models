@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.0.3] — 2026-05-13
+
+### Fixed
+- **`attr_data_driven_bqml.sqlx`** — `pred_all` CTE referenced dimension columns (`conversion_event`, `conversion_value_usd`, etc.) in its outer SELECT, but the inner `ML.PREDICT` subquery only listed the 19 channel flags. BigQuery `ML.PREDICT` only emits columns present in its input, so the query failed at compile time with `Unrecognized name: conversion_event`. Added the dimension columns to the inner SELECT so they pass through.
+
+### Changed (breaking for BI users)
+- **`dashboard.attribution_dashboard`** — removed `channel_total_value_usd`, `channel_total_conversions`, and `aov_usd` columns. These were pre-aggregated channel-level totals duplicated onto every row-level fact, which made Data Studio / Looker Studio charts produce nonsensical numbers (either repeated identical rows with no aggregation, or N× inflated values when SUMmed). For channel-level totals, point your BI tool at `attribution_models.cross_channel_comparison` (which is correctly pre-aggregated). For AOV, create a calculated field `SUM(attributed_value_usd) / SUM(attributed_credit)` filtered to a single model — see `docs/DATA_STUDIO_GUIDE.md`.
+- **`docs/DATA_STUDIO_GUIDE.md`** — added an explicit "Granularity warning" callout before any chart instructions, replaced the `AVG(aov_usd)` scorecard recipe with a calculated-field recipe that produces correct numbers, and removed the `channel_total_*` / `aov_usd` entries from the field reference table.
+
 ## [2.0.2] — 2026-05-12
 
 ### Fixed (pipeline)
