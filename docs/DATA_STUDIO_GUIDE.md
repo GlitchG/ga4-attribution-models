@@ -71,7 +71,9 @@ You'll add **three** data sources, each pointing to a dashboard view:
 > ```
 > Custom queries let you add WHERE clauses later without modifying the pipeline. Replace `marketingdataanalyst` with your GCP project ID.
 
-Click **Add**. Data Studio will show a preview of ~58K rows with columns: `model`, `channel`, `conversion_id`, `conversion_event`, `conversion_ts`, `value_mode`, `transaction_id`, `attributed_credit`, `attributed_value_usd`, `attributed_value_local`, `aov_usd`, `source`, `medium`, `campaign`, `path_length`, etc.
+Click **Add**. Data Studio will show a preview of ~58K rows with columns: `model`, `channel`, `conversion_id`, `conversion_event`, `conversion_ts`, `value_mode`, `transaction_id`, `attributed_credit`, `attributed_value_usd`, `attributed_value_local`, `source`, `medium`, `campaign`, `path_length`.
+
+> **Granularity warning — read this before you build any chart.** `attribution_dashboard` is a **row-level** view: one row per touchpoint per conversion per model. Aggregate it in Data Studio with `SUM(attributed_credit)`, `SUM(attributed_value_usd)`, and `COUNT(DISTINCT conversion_id)`. If you just drag a dimension onto the canvas without an aggregated metric, Data Studio will show one row per touchpoint and the same source/channel will repeat many times. For channel-level summaries (e.g. "total revenue per channel per model") point Data Studio at `attribution_models.cross_channel_comparison` instead — that view is already aggregated and safe to chart without further GROUP BY.
 
 #### Data Source 2: Funnel
 
@@ -134,9 +136,9 @@ Add four scorecards at the top of your page for an at-a-glance summary:
 | Total Conversions | `SUM(attributed_credit)` | — |
 | Total Revenue (USD) | `SUM(attributed_value_usd)` | — |
 | Total Revenue (Local) | `SUM(attributed_value_local)` | — |
-| Average Order Value | `AVG(aov_usd)` | — |
+| Average Order Value (USD) | `SUM(attributed_value_usd) / SUM(attributed_credit)` (calculated field) | model = any single model |
 
-*How to add:* Click **Add a chart** → **Scorecard**. Drag the metric from the data panel. For AOV, click the scorecard, go to Data tab, and select `aov_usd` → `AVG`.
+*How to add:* Click **Add a chart** → **Scorecard**. Drag the metric from the data panel. For AOV, create a calculated field on the data source (**Resource → Manage added data sources → ADD A FIELD**) named `aov_usd` with the formula `SUM(attributed_value_usd) / SUM(attributed_credit)`, then drag it onto a scorecard. Add a `model` filter so the AOV reflects one model at a time — otherwise you'd be averaging across 8 different credit allocations for the same revenue.
 
 ### 2.2 Bar Chart: Attributed Revenue by Channel × Model
 
@@ -295,7 +297,7 @@ Duplicate the pivot table and change the metric to `SUM(attributed_credit)`. Thi
 
 ### 4.3 Heatmap Variant — Average Order Value
 
-A third pivot using `AVG(aov_usd)` as the metric. This reveals whether certain models attribute higher-value conversions to certain channels.
+A third pivot using the calculated AOV field (`SUM(attributed_value_usd) / SUM(attributed_credit)`) as the metric. This reveals whether certain models attribute higher-value conversions to certain channels. Filter to a single `conversion_event` (e.g. `purchase`) to keep the AOV meaningful — mixing revenue events with count-mode events would give you a misleading number.
 
 ---
 
@@ -786,9 +788,8 @@ The `dashboard.attribution_dashboard` and `cross_channel_comparison` views query
 | `attributed_credit` | Number (0–1) | Fractional credit assigned by the model (1.0 = 100%) |
 | `attributed_value_usd` | Number | Revenue in USD × attributed_credit |
 | `attributed_value_local` | Number | Revenue in local currency × attributed_credit |
-| `channel_total_value_usd` | Number | Total value for this channel across all conversions (from cross_channel_comparison) |
-| `channel_total_conversions` | Number | Total credited conversions for this channel |
-| `aov_usd` | Number | Average order value = attributed_value_usd / attributed_credit |
+
+> For channel-level totals and average order value, do **not** look for them as columns on `attribution_dashboard` (they were removed in v2.0.3 — see CHANGELOG). Use `attribution_models.cross_channel_comparison` as a second data source for pre-aggregated `total_value_usd`, `attributed_conversions`, and `avg_attributed_value_usd`.
 
 ### `dashboard.funnel_dashboard` (Funnel data source)
 

@@ -3,7 +3,7 @@ config {
   schema: "dashboard",
   name: "attribution_dashboard",
   tags: ["dashboard", "daily"],
-  description: "Dashboard-ready view of attribution model comparison by channel and conversion event."
+  description: "Row-level attribution view for BI tools: one row per touchpoint per conversion per model. Aggregate in the BI tool by SUMming attributed_credit and attributed_value_usd, and COUNT(DISTINCT conversion_id) for conversion counts. For pre-aggregated channel-level metrics, point your BI tool at attribution_models.cross_channel_comparison instead — mixing row-level facts with pre-aggregated channel totals produces nonsensical numbers in Looker Studio."
 }
 
 SELECT
@@ -22,12 +22,5 @@ SELECT
   m.campaign,
   m.attributed_credit,
   m.attributed_value_usd,
-  m.attributed_value_local,
-  c.total_value_usd AS channel_total_value_usd,
-  c.total_credit AS channel_total_conversions,
-  ROUND(m.attributed_value_usd / NULLIF(m.attributed_credit, 0), 2) AS aov_usd
+  m.attributed_value_local
 FROM ${ref("attribution_models", "attribution_mart")} m
-LEFT JOIN ${ref("attribution_models", "cross_channel_comparison")} c
-  ON m.model = c.model
-  AND m.conversion_event = c.conversion_event
-  AND m.channel = c.channel
