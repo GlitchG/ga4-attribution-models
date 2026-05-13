@@ -54,7 +54,16 @@ Or run everything at once: `dataform run`.
 
 ### 1.2 Add BigQuery Data Sources
 
-You'll add **three** data sources, each pointing to a dashboard view:
+You'll add **five** data sources. Each is purpose-built for one type of chart — picking the right one avoids 90% of the common visualization pitfalls listed in §12.
+
+| Data source | View | Granularity | Use it for |
+|---|---|---|---|
+| Attribution (row-level) | `dashboard.attribution_dashboard` | One row per touchpoint per conversion per model | Path-level analysis, AOV calculated fields, model comparison when you can apply a `model` filter |
+| Channel comparison (pre-agg) | `attribution_models.cross_channel_comparison` | One row per (model × conversion_event × channel) | Channel-level summaries — SUMs are correct as-is, no model filter needed |
+| Daily traffic | `dashboard.daily_traffic_overview` | One row per (date × channel × source × medium) | Users / sessions / traffic-mix charts (top-of-funnel, not just converted journeys) |
+| Funnel | `dashboard.funnel_dashboard` | One row per funnel stage | Ecommerce funnel, drop-off, cart abandonment |
+| Paths | `dashboard.paths_dashboard` | One row per conversion journey | Top conversion paths, path length distribution |
+
 
 #### Data Source 1: Attribution
 
@@ -71,11 +80,34 @@ You'll add **three** data sources, each pointing to a dashboard view:
 > ```
 > Custom queries let you add WHERE clauses later without modifying the pipeline. Replace `marketingdataanalyst` with your GCP project ID.
 
-Click **Add**. Data Studio will show a preview of ~58K rows with columns: `model`, `channel`, `conversion_id`, `conversion_event`, `conversion_ts`, `value_mode`, `transaction_id`, `attributed_credit`, `attributed_value_usd`, `attributed_value_local`, `source`, `medium`, `campaign`, `path_length`.
+Click **Add**. Data Studio will show a preview of ~58K rows with columns: `model`, `conversion_event`, `value_mode`, `channel`, `user_pseudo_id`, `conversion_id`, `conversion_ts`, `conversion_date`, `transaction_id`, `conversion_value_local`, `conversion_value_usd`, `path_length`, `source`, `medium`, `campaign`, `attributed_credit`, `attributed_value_usd`, `attributed_value_local`.
 
 > **Granularity warning — read this before you build any chart.** `attribution_dashboard` is a **row-level** view: one row per touchpoint per conversion per model. Aggregate it in Data Studio with `SUM(attributed_credit)`, `SUM(attributed_value_usd)`, and `COUNT(DISTINCT conversion_id)`. If you just drag a dimension onto the canvas without an aggregated metric, Data Studio will show one row per touchpoint and the same source/channel will repeat many times. For channel-level summaries (e.g. "total revenue per channel per model") point Data Studio at `attribution_models.cross_channel_comparison` instead — that view is already aggregated and safe to chart without further GROUP BY.
 
-#### Data Source 2: Funnel
+#### Data Source 2: Daily Traffic (Users / Sessions)
+
+| Step | Action |
+|------|--------|
+| Connector | BigQuery |
+| Dataset | `dashboard` |
+| Table | `daily_traffic_overview` |
+
+This view is **pre-aggregated**. Each row is one `(session_date, channel, source, medium)` combination, with `unique_users`, `total_sessions`, and `sessions_per_user` already computed. You can drag any metric onto a chart without thinking about distinct counts or model filters.
+
+Columns:
+
+| Field | Type | Description |
+|---|---|---|
+| `session_date` | Date | Date of the session |
+| `channel` | Text | 19-channel grouping |
+| `source` / `medium` | Text | Raw GA4 source/medium |
+| `unique_users` | Number | Distinct `user_pseudo_id` on that day on that channel |
+| `total_sessions` | Number | Distinct `(user_pseudo_id, ga_session_id)` pairs |
+| `sessions_per_user` | Number | `total_sessions / unique_users` |
+
+**Use this for:** "Users by channel over time", "Sessions by traffic mix", "Sessions per user trend". **Do NOT** use it for attributed conversions — these counts include every visitor, not just converters.
+
+#### Data Source 3: Funnel
 
 | Step | Action |
 |------|--------|
@@ -90,7 +122,7 @@ SELECT * FROM `marketingdataanalyst.dashboard.funnel_dashboard`
 
 Preview shows 6 rows (5 funnel stages + 1 cart abandonment row).
 
-#### Data Source 3: Paths
+#### Data Source 4: Paths
 
 | Step | Action |
 |------|--------|
@@ -560,11 +592,144 @@ Add this as a percentage column to confirm each model accounts for 12.5% (1/8) o
 
 ---
 
-## 9. Time Series of Conversions
+## 9. Users and Sessions
+
+**Goal:** Chart raw users / sessions / traffic mix — independent of whether those users ultimately converted.
+
+There are two views to choose from depending on what question you're answering:
+
+| Question | Use this view | Why |
+|---|---|---|
+| "How many users / sessions did each channel bring me?" | `daily_traffic_overview` | Already aggregated to date × channel grain, includes every visitor |
+| "How many users / sessions appear in conversion journeys (per attribution model)?" | `attribution_dashboard` | Row-level, requires a `model` filter and `COUNT(DISTINCT user_pseudo_id)` |
+
+### 9.1 Daily Users by Channel (top-of-funnel)
+
+Use the **Daily Traffic** data source.
+
+| Setting | Value |
+|---------|-------|
+| Chart type | **Time Series Chart** (Line or Stacked Area) |
+| Dimension | `session_date` |
+| Metric | `unique_users` (already a distinct count — DO NOT wrap in `COUNT_DISTINCT`) |
+| Breakdown | `channel` |
+
+> **Important:** `unique_users` and `total_sessions` are pre-computed in the view. Set their aggregation to `SUM` in Data Studio (since each row is one channel/day combination, summing across the date dimension is correct). Do **not** wrap them in `COUNT_DISTINCT` — that would count the number of channel/day pairs, not users.
+
+### 9.2 Sessions per User (engagement)
+
+| Setting | Value |
+|---------|-------|
+| Chart type | **Scorecard** or **Time Series** |
+| Metric | `sessions_per_user` (set aggregation to `AVG`) |
+
+For a single scorecard summing the full period, use a calculated field on the data source: `SUM(total_sessions) / SUM(unique_users)` — this is more accurate than averaging the daily rate.
+
+### 9.3 Traffic Mix (Channel Share of Sessions)
+
+| Setting | Value |
+|---------|-------|
+| Chart type | **100% Stacked Bar** or **Donut Chart** |
+| Dimension | `channel` |
+| Metric | `total_sessions` (aggregation: `SUM`) |
+
+### 9.4 Users Who Converted vs Total Users (conversion-rate proxy)
+
+Combine two data sources:
+
+1. **Total users** from `daily_traffic_overview` → `SUM(unique_users)` filtered to your channel / date.
+2. **Converting users** from `attribution_dashboard` → `COUNT(DISTINCT user_pseudo_id)` filtered to a single `model` (last_click is the conventional choice) and the same channel / date.
+
+Then create a calculated field for the rate. Note that this is an **approximate** conversion rate — `daily_traffic_overview` counts every visitor while `attribution_dashboard` counts every user who later converted via this channel, and the two views are joined manually in the BI tool rather than at SQL time.
+
+### 9.5 Converting Users per Channel per Model
+
+Use the **Attribution** data source.
+
+| Setting | Value |
+|---------|-------|
+| Chart type | **Bar Chart** |
+| Dimension | `channel` |
+| Metric | `user_pseudo_id` (aggregation: `Count Distinct`) — rename to "Converting Users" |
+| Filter | `model = last_click` (always filter to a single model) |
+
+Without the `model` filter you'd add the same user up to 8 times (once per model in the union mart). This is the most common visualization bug — see §10 below.
+
+---
+
+## 10. Common Pitfalls and How to Avoid Them
+
+A short list of every viz gotcha this dataset will throw at you, with the fix.
+
+### 10.1 Forgetting the model filter — N× inflation
+
+`attribution_dashboard` and `attribution_mart` contain **eight unioned models** (`first_click`, `last_click`, `last_non_direct_click`, `linear`, `time_decay`, `u_shape`, `position_weighted`, `data_driven_bqml`). Every conversion appears once per model.
+
+| Wrong | Result |
+|---|---|
+| `SUM(attributed_value_usd)` with no filter | 8× revenue (one per model) |
+| `COUNT(DISTINCT conversion_id)` with no filter | Correct, because conversion_id is shared across models |
+| `COUNT(DISTINCT user_pseudo_id)` with no filter | Correct, same reason |
+
+**Fix:** always add either a `model` filter control (default: one model selected) or restrict the chart's filter pane to a specific model.
+
+### 10.2 Mixing currencies in `attributed_value_local`
+
+`attributed_value_local` is in the **conversion's own currency** — for a single GA4 export this can be a mix of USD, EUR, GBP, etc. `SUM(attributed_value_local)` across currencies is meaningless.
+
+**Fix:** either use `attributed_value_usd` (always USD), or add a currency filter to the chart (`event_currency` from `paths_dashboard` or join in your own currency table).
+
+### 10.3 Count-mode events have NULL revenue
+
+`begin_checkout`, `add_to_cart`, `add_shipping_info`, and `add_payment_info` are configured as `value_mode = 'count'`, so their `attributed_value_usd` is `NULL`. AOV and revenue charts that include these events will under-state metrics or show NULLs.
+
+**Fix:** filter `conversion_event = 'purchase'` for any revenue / AOV chart. For conversion-count charts, leaving all events in is fine.
+
+### 10.4 `conversion_ts` treated as Text
+
+If your date-range filter doesn't work or your time-series chart shows a single bar, Data Studio likely parsed `conversion_ts` as Text.
+
+**Fix:** Resource → Manage added data sources → click the field → change Type to **Date & Time** → **Date Time**. (The `conversion_date` column added in v2.0.4 is already a `DATE` type and is the safest dimension to use for daily aggregations.)
+
+### 10.5 `source` and `channel` aren't the same granularity
+
+`source` is the raw GA4 traffic-source string (e.g. `google`, `shop.googlemerchandisestore.com`, `(direct)`). `channel` is the normalized 19-channel grouping (e.g. `Organic Search`, `Paid Search Brand`, `Direct`). Putting both into a single chart dimension produces confusing rows because one channel maps to many sources.
+
+**Fix:** pick one. For executive reporting, use `channel`. For ad-platform debugging, use `source` and `medium`.
+
+### 10.6 `NULL transaction_id` for non-purchase events
+
+`transaction_id` is only populated for `purchase` events. `COUNT(DISTINCT transaction_id)` will under-count if your chart includes `begin_checkout` / `add_to_cart`.
+
+**Fix:** use `COUNT(DISTINCT conversion_id)` for conversion counts — it's populated for every event.
+
+### 10.7 Many sessions show channel `Unknown` (public sample only)
+
+The public GA4 sample anonymises traffic sources to `<Other>` / `(data deleted)`, which the pipeline maps to `Unknown` (the 19th channel). Don't be alarmed if `Unknown` is your biggest channel on the public sample — it isn't a bug. On real client data, this catch-all should be tiny.
+
+### 10.8 BQML model rows missing or sparse
+
+`attr_data_driven_bqml` requires enough training data to be meaningful (recommended: 1,000+ conversions). On the public sample, the BQML model produces directionally useful but noisy weights. If a chart filtered to `model = data_driven_bqml` looks empty or wild, switch to `last_click` or `linear` for the demo.
+
+### 10.9 `funnel_dashboard` UNION mixes stage rows with cart-abandonment row
+
+`funnel_dashboard` is a UNION ALL of `purchase_funnel` (5 rows: stages 1–5) and `cart_abandonment` (1 row: `stage_num = 99`). If you SUM across the whole view without a stage filter, you'll double-count add-to-cart users.
+
+**Fix:** filter `stage_num < 99` for funnel-stage charts; filter `stage_num = 99` for the cart-abandonment scorecard.
+
+### 10.10 `path_length` outliers from bot traffic
+
+Real bot/scraper sessions can push `path_length` into the hundreds. A bar chart of `path_length` will show a long tail that drowns out the meaningful 1–5 bucket.
+
+**Fix:** add a `path_length <= 10` filter to path-distribution charts, or use a calculated bucket field (`CASE WHEN path_length >= 10 THEN '10+' ELSE CAST(path_length AS STRING) END`).
+
+---
+
+## 11. Time Series of Conversions
 
 **Goal:** Show how attributed conversions and revenue trend over time, by model and channel.
 
-### 9.1 Line Chart: Daily Attributed Revenue by Model
+### 11.1 Line Chart: Daily Attributed Revenue by Model
 
 | Setting | Value |
 |---------|-------|
@@ -577,7 +742,7 @@ Add this as a percentage column to confirm each model accounts for 12.5% (1/8) o
 
 *What you'll see:* Eight lines tracking daily attributed revenue. On any given day, the 8 lines should be identical (same total revenue, different only in how it's split across channels within each model). Differences indicate data issues.
 
-### 9.2 Time Series: Attributed Revenue by Channel
+### 11.2 Time Series: Attributed Revenue by Channel
 
 | Setting | Value |
 |---------|-------|
@@ -588,7 +753,7 @@ Add this as a percentage column to confirm each model accounts for 12.5% (1/8) o
 
 Add a **Filter Control** for `model` so users can switch between models and see how channel composition changes over time.
 
-### 9.3 Time Series: Attribution Model Differences Over Time
+### 11.3 Time Series: Attribution Model Differences Over Time
 
 Create a calculated field that measures the delta between two models:
 
@@ -606,7 +771,7 @@ SUM(CASE WHEN model = 'first_click' THEN attributed_value_usd ELSE 0 END)
 
 This shows whether the "attribution gap" between First Click and Last Click widens or narrows over time.
 
-### 9.4 Week-over-Week Change
+### 11.4 Week-over-Week Change
 
 **Calculated Field — `wow_revenue_change`:**
 ```
@@ -624,11 +789,11 @@ This shows whether the "attribution gap" between First Click and Last Click wide
 
 ---
 
-## 10. Filters and Controls
+## 12. Filters and Controls
 
 Good dashboards are interactive. Add these controls to help users explore the data.
 
-### 10.1 Date Range Control
+### 12.1 Date Range Control
 
 | Setting | Value |
 |---------|-------|
@@ -638,7 +803,7 @@ Good dashboards are interactive. Add these controls to help users explore the da
 
 *How to add:* **Add a control** → **Date range control**. Position it at the top of the dashboard. No configuration needed — it auto-filters all charts using `conversion_ts`.
 
-### 10.2 Model Selector
+### 12.2 Model Selector
 
 | Setting | Value |
 |---------|-------|
@@ -648,7 +813,7 @@ Good dashboards are interactive. Add these controls to help users explore the da
 
 *Default selection:* All models. Users can deselect to focus on 2–3 models at a time.
 
-### 10.3 Channel Selector
+### 12.3 Channel Selector
 
 | Setting | Value |
 |---------|-------|
@@ -656,7 +821,7 @@ Good dashboards are interactive. Add these controls to help users explore the da
 | Control field | `channel` |
 | Style | Multi-select |
 
-### 10.4 Path Length Filter (Slider)
+### 12.4 Path Length Filter (Slider)
 
 | Setting | Value |
 |---------|-------|
@@ -666,14 +831,14 @@ Good dashboards are interactive. Add these controls to help users explore the da
 
 *Use case:* "Show me only conversions that took 3+ touchpoints."
 
-### 10.5 Device Category Filter
+### 12.5 Device Category Filter
 
 | Setting | Value |
 |---------|-------|
 | Control type | **Drop-down list** |
 | Control field | `device_category` |
 
-### 10.6 Cross-Filtering (Chart Interactions)
+### 12.6 Cross-Filtering (Chart Interactions)
 
 Enable cross-filtering so clicking a bar in one chart filters all others:
 1. Click any chart
@@ -682,7 +847,7 @@ Enable cross-filtering so clicking a bar in one chart filters all others:
 
 Now clicking "Organic Search" in the bar chart will filter the time series and paths table to only Organic Search rows.
 
-### 10.7 Control Layout Tips
+### 12.7 Control Layout Tips
 
 - Place date range and model selector at the **top** (global controls)
 - Place channel selector on the main comparison page
@@ -691,9 +856,9 @@ Now clicking "Organic Search" in the bar chart will filter the time series and p
 
 ---
 
-## 11. Sharing and Refresh
+## 13. Sharing and Refresh
 
-### 11.1 Data Freshness
+### 13.1 Data Freshness
 
 Data Studio uses **live connections** to BigQuery. Every time someone views the dashboard, it queries BigQuery.
 
@@ -704,7 +869,7 @@ Data Studio uses **live connections** to BigQuery. Every time someone views the 
 
 *Recommendation:* Set cache to **4 hours** for daily reporting. For real-time dashboards, set to **15 minutes** (note: higher BigQuery query costs).
 
-### 11.2 Sharing the Dashboard
+### 13.2 Sharing the Dashboard
 
 1. Click **Share** (top-right) → **Invite people**
 2. Enter email addresses
@@ -716,7 +881,7 @@ Data Studio uses **live connections** to BigQuery. Every time someone views the 
 
 > **Important:** Viewers do NOT need BigQuery access. Data Studio uses the report owner's credentials to query BigQuery. Viewers see charts only — they cannot run arbitrary queries against your data.
 
-### 11.3 Download Options
+### 13.3 Download Options
 
 Users (and you) can download data from any chart:
 1. Hover over the chart → click the three-dot menu (⋮)
@@ -724,7 +889,7 @@ Users (and you) can download data from any chart:
 
 To download the full underlying dataset, use the **Data** tab → **Export**.
 
-### 11.4 Scheduling PDF / Email Delivery
+### 13.4 Scheduling PDF / Email Delivery
 
 Data Studio supports scheduled email delivery:
 
@@ -736,14 +901,14 @@ Data Studio supports scheduled email delivery:
 
 *Note:* PDF exports capture the dashboard as it appears at the scheduled time. Interactive filters are not active in PDFs.
 
-### 11.5 Embedding
+### 13.5 Embedding
 
 To embed the dashboard in a webpage or internal portal:
 1. **File** → **Embed report**
 2. Copy the iframe code
 3. **Optional:** Check "Enable embedding" to restrict which domains can embed
 
-### 11.6 BigQuery Cost Management
+### 13.6 BigQuery Cost Management
 
 | Concern | Solution |
 |---------|----------|
@@ -753,7 +918,7 @@ To embed the dashboard in a webpage or internal portal:
 
 The `dashboard.attribution_dashboard` and `cross_channel_comparison` views query materialized tables (~58K rows for the mart, ~56 rows for the comparison). These are **trivially cheap** — expect cents per month even with frequent viewing.
 
-### 11.7 Troubleshooting
+### 13.7 Troubleshooting
 
 | Problem | Likely Cause | Fix |
 |---------|-------------|-----|

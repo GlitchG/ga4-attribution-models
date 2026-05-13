@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.0.4] — 2026-05-13
+
+### Added
+- **`dashboard.daily_traffic_overview`** — new pre-aggregated view (date × channel × source × medium) with `unique_users`, `total_sessions`, and `sessions_per_user`. Sourced from `stg_ga4_sessions`, so it captures every visitor — not just users who converted. Use this for top-of-funnel traffic charts in Looker Studio without having to wrestle with distinct counts at row level.
+- **`dashboard.attribution_dashboard`** — added `user_pseudo_id` (so BI tools can `COUNT(DISTINCT)` converting users per channel/model) and `conversion_date` (a `DATE` column derived from `conversion_ts`, safer than relying on Looker Studio to parse the timestamp).
+- **`docs/DATA_STUDIO_GUIDE.md`** — new §9 "Users and Sessions" with five recipes for users/sessions/traffic-mix charts spanning both the converted-journey view and the top-of-funnel view. New §10 "Common Pitfalls" enumerates the 10 most common visualization mistakes this dataset triggers (model filter, currency mixing, count-mode NULLs, timestamp type, source vs channel granularity, NULL transaction_id, public-sample `Unknown`, BQML sparsity, funnel UNION quirk, path_length outliers) with the fix for each.
+
 ## [2.0.3] — 2026-05-13
 
 ### Fixed

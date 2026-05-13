@@ -1,0 +1,40 @@
+config {
+  type: "table",
+  schema: "dashboard",
+  name: "daily_traffic_overview",
+  tags: ["dashboard", "daily"],
+  description: "Daily traffic roll-up by channel/source/medium. Pre-aggregated so Looker Studio charts don't need a model filter or distinct counts. Includes ALL sessions from stg_ga4_sessions, not just sessions that ended in a conversion — use this for top-of-funnel and traffic-mix charts. For attributed conversions/revenue, use attribution_dashboard or cross_channel_comparison.",
+  columns: {
+    session_date: "Date the session started (UTC)",
+    channel: "Normalised 19-channel grouping",
+    source: "Traffic source",
+    medium: "Traffic medium",
+    unique_users: "Distinct user_pseudo_id seen on the day on this channel",
+    total_sessions: "Total sessions (distinct ga_session_id within user_pseudo_id)",
+    sessions_per_user: "total_sessions / unique_users — pre-computed so BI tools can chart it directly"
+  }
+}
+
+WITH base AS (
+  SELECT
+    DATE(session_start) AS session_date,
+    channel,
+    source,
+    medium,
+    user_pseudo_id,
+    session_id
+  FROM ${ref("staging", "stg_ga4_sessions")}
+)
+SELECT
+  session_date,
+  channel,
+  source,
+  medium,
+  COUNT(DISTINCT user_pseudo_id) AS unique_users,
+  COUNT(DISTINCT CONCAT(CAST(user_pseudo_id AS STRING), '-', CAST(session_id AS STRING))) AS total_sessions,
+  SAFE_DIVIDE(
+    COUNT(DISTINCT CONCAT(CAST(user_pseudo_id AS STRING), '-', CAST(session_id AS STRING))),
+    NULLIF(COUNT(DISTINCT user_pseudo_id), 0)
+  ) AS sessions_per_user
+FROM base
+GROUP BY 1, 2, 3, 4
