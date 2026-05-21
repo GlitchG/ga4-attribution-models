@@ -13,7 +13,7 @@ Use these when:
 |---|---|
 | `data-preparation/` | Foundation queries: extract sessions, build ordered journeys from raw GA4 events |
 | `attribution_models/` | Eight rule-based models + data-driven (BQML) + cross-channel comparison |
-| `dashboard/` | SQL views that power Looker Studio dashboards |
+| `dashboard/` | SQL views that power Data Studio dashboards |
 | `ecommerce_funnel/` | Cart abandonment and purchase funnel analysis |
 | `user_journey/` | Path analysis (common paths, path length distribution) |
 | `setup_views.sql` | Create helper views for different GA4 export schemas (pre/post July 2024) |

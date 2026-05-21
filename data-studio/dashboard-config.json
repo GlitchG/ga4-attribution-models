@@ -1,5 +1,5 @@
 {
-  "_comment": "Looker Studio Dashboard Configuration for GA4 Attribution Models v2.0. This is a structured spec — Looker Studio does not support native JSON import. Use this as: (1) a precise reference for manual recreation, (2) input for the create_dashboard.py API script, or (3) a checklist for QA.",
+  "_comment": "Data Studio Dashboard Configuration for GA4 Attribution Models v2.0. This is a structured spec — Data Studio does not support native JSON import. Use this as: (1) a precise reference for manual recreation, (2) input for the create_dashboard.py API script, or (3) a checklist for QA.",
   "report_meta": {
     "name": "GA4 Attribution Models v2.0 — Cross-Model Comparison",
     "theme": "Simple White",

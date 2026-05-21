@@ -3,7 +3,7 @@ config {
   schema: "dashboard",
   name: "daily_traffic_overview",
   tags: ["dashboard", "daily"],
-  description: "Daily traffic roll-up by channel/source/medium. Pre-aggregated so Looker Studio charts don't need a model filter or distinct counts. Includes ALL sessions from stg_ga4_sessions, not just sessions that ended in a conversion — use this for top-of-funnel and traffic-mix charts. For attributed conversions/revenue, use attribution_dashboard or cross_channel_comparison.",
+  description: "Daily traffic roll-up by channel/source/medium. Pre-aggregated so Data Studio charts don't need a model filter or distinct counts. Includes ALL sessions from stg_ga4_sessions, not just sessions that ended in a conversion — use this for top-of-funnel and traffic-mix charts. For attributed conversions/revenue, use attribution_dashboard or cross_channel_comparison.",
   columns: {
     session_date: "Date the session started (UTC)",
     channel: "Normalised 19-channel grouping",

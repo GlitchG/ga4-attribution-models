@@ -31,7 +31,7 @@ Or run everything at once: `dataform run`.
 | Table | Approximate Rows |
 |---|---|
 | `attribution_mart` | ~58,000 |
-| `cross_channel_comparison` | ~56 |
+| `cross_channel_comparison` | ~64 |
 | `paths_dashboard` | ~12,000 |
 | `funnel_dashboard` | 6 (5 stages + 1 cart abandonment) |
 
@@ -208,37 +208,20 @@ This gives each channel-model combination's percentage of total credited convers
 
 ### 2.4 Table: Variance from Last Click
 
-Create a table showing how much more or less credit each model gives vs. Last Click.
+Create a table showing how much more or less revenue each model attributes vs. Last Click.
 
-**Calculated Field — `variance_from_last_click`:**
-```
-attributed_value_usd - 
-SUM(CASE WHEN model = 'last_click' THEN attributed_value_usd ELSE 0 END) 
-  / SUM(CASE WHEN model = 'last_click' THEN attributed_credit ELSE 0 END) 
-  * attributed_credit
-```
-
-Simpler alternative — two calculated fields:
-
-**`revenue_last_click`** (per channel):
-```
-SUM(CASE WHEN model = 'last_click' THEN attributed_value_usd ELSE 0 END)
-```
-
-**`revenue_vs_last_click_pct`:**
-```
-(SUM(attributed_value_usd) - SUM(revenue_last_click)) / NULLIF(SUM(revenue_last_click), 0)
-```
-
-Chart settings:
+Use the pre-computed `variance_from_last_click_usd` column from the **Channel comparison (pre-agg)** data source (`attribution_models.cross_channel_comparison`). This value is computed server-side via a window function in BigQuery — Data Studio calculated fields do not support window functions, so attempting to recreate this logic as a calculated field will fail.
 
 | Setting | Value |
 |---------|-------|
+| Data source | `cross_channel_comparison` |
 | Chart type | **Table** |
 | Dimension | `channel`, `model` |
-| Metrics | `revenue_vs_last_click_pct` (as percentage) |
+| Metric | `variance_from_last_click_usd` (aggregation: SUM) |
 
-Use **conditional formatting**: green for positive (>0 means model gives MORE credit than Last Click), red for negative.
+Use **conditional formatting**: green for positive (model gives MORE revenue than Last Click for this channel), red for negative.
+
+> **Why server-side?** `variance_from_last_click_usd` requires `SUM(...) OVER (PARTITION BY channel)` to look up the last-click value for the same channel across model rows. Window functions are not available in Data Studio calculated fields — they are evaluated row-by-row without access to sibling rows in the same partition.
 
 ### 2.5 Scorecard Grid: Top Channels (Executive Summary)
 

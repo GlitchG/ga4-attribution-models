@@ -4,8 +4,8 @@
 -- Uses GA4-UI-style first-non-auto-event source extraction with session_start fallback.
 -- Note: linear model (m4) uses per-session credit to match linear-model-attribution.sql.
 
-DECLARE start_date STRING DEFAULT '20210101';
-DECLARE end_date STRING DEFAULT '20210131';
+DECLARE start_date STRING DEFAULT '20201101';
+DECLARE end_date STRING DEFAULT '20201220';
 
 CREATE OR REPLACE TABLE `your_project.your_dataset.attribution_mart` AS
 

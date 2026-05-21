@@ -70,14 +70,14 @@ standalone-sql/                          -- Copy-paste BigQuery scripts (no Data
 ├── setup_views.sql
 └── validation_queries.sql
 
-looker-studio/                           -- Dashboard kit
+data-studio/                             -- Dashboard kit
 ├── dashboard-config.json                -- Structured spec
 ├── create_dashboard.py                  -- Programmatic creation via API
 └── README.md
 
 docs/
 ├── USAGE_GUIDE.md                       -- Full technical reference
-└── LOOKER_STUDIO_GUIDE.md               -- Visualisation build steps
+└── DATA_STUDIO_GUIDE.md                 -- Visualisation build steps
 ```
 
 ---
@@ -112,7 +112,7 @@ Running from the **Dataform UI in Google Cloud** (no local CLI needed)? See [doc
 | Document | What you'll find |
 |---|---|
 | [`docs/USAGE_GUIDE.md`](docs/USAGE_GUIDE.md) | Setup, configuration, architecture, running the pipeline, output tables, troubleshooting, validation, cost module, migration guide |
-| [`docs/LOOKER_STUDIO_GUIDE.md`](docs/LOOKER_STUDIO_GUIDE.md) | Connecting BigQuery, building charts (model comparison, heatmaps, funnels, paths), filters, sharing, cost management |
+| [`docs/DATA_STUDIO_GUIDE.md`](docs/DATA_STUDIO_GUIDE.md) | Connecting BigQuery, building charts (model comparison, heatmaps, funnels, paths), filters, sharing, cost management |
 | [`standalone-sql/README.md`](standalone-sql/README.md) | How to use the stand-alone BigQuery scripts without Dataform |
 | [`CHANGELOG.md`](CHANGELOG.md) | Version history and breaking changes |
 
