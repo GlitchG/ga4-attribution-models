@@ -256,15 +256,14 @@
           "metric": { "field": "record_count", "aggregation": "COUNT", "alias": "Conversions" },
           "sort": { "field": "path_length", "order": "ASCENDING" },
           "filter": [
-            { "field": "conversion_event", "operator": "EQUALS", "value": "purchase" },
-            { "field": "path_length", "operator": "LESS_THAN_OR_EQUAL", "value": 10 }
+            { "field": "conversion_event", "operator": "EQUALS", "value": "purchase" }
           ],
           "position": { "x": 620, "y": 80, "width": 300, "height": 350 },
           "style": {
             "axis_title_x": "Number of Touchpoints",
             "axis_title_y": "Conversions"
           },
-          "note": "path_length filter bounds the long tail (bot traffic occasionally produces 50+ session paths)."
+          "note": "No path_length cap by default — long paths can be genuine high-engagement customers, not just bots. If you want to bucket the tail for readability, add a calculated field: CASE WHEN path_length >= 10 THEN '10+' ELSE CAST(path_length AS STRING) END. Only filter path_length <= 50 if you're specifically excluding bot extremes."
         }
       ]
     },
