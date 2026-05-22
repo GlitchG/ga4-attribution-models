@@ -2,7 +2,7 @@
 -- Identifies sessions where users added items to cart but did not complete purchase
 
 DECLARE start_date STRING DEFAULT '20201101';
-DECLARE end_date STRING DEFAULT '20201220';
+DECLARE end_date STRING DEFAULT '20210131';
 
 WITH session_events AS (
   SELECT

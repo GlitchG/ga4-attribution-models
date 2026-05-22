@@ -34,7 +34,7 @@
 --   https://tanelytics.com/ga4-bigquery-session-traffic_source/ (deep dive)
 
 DECLARE start_date STRING DEFAULT '20201101';
-DECLARE end_date STRING DEFAULT '20201220';
+DECLARE end_date STRING DEFAULT '20210131';
 
 -- ============================================================================
 -- STEP 1: Extract sessions using GA4-UI-style first-non-auto-event rule
