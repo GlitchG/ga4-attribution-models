@@ -1,8 +1,8 @@
 -- Cart Abandonment Analysis
 -- Identifies sessions where users added items to cart but did not complete purchase
 
-DECLARE start_date STRING DEFAULT '20210101';
-DECLARE end_date STRING DEFAULT '20210131';
+DECLARE start_date STRING DEFAULT '20201101';
+DECLARE end_date STRING DEFAULT '20201220';
 
 WITH session_events AS (
   SELECT

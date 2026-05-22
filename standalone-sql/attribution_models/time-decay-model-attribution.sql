@@ -4,8 +4,8 @@
 -- Half-life: ~7 days (matches GA4 default). Normalised per (user, conversion_id).
 -- Uses GA4-UI-style first-non-auto-event source extraction with session_start fallback.
 
-DECLARE start_date STRING DEFAULT '20210101';
-DECLARE end_date STRING DEFAULT '20210131';
+DECLARE start_date STRING DEFAULT '20201101';
+DECLARE end_date STRING DEFAULT '20201220';
 
 WITH session_event_traffic AS (
   SELECT

@@ -3,7 +3,7 @@ config {
   schema: "dashboard",
   name: "attribution_dashboard",
   tags: ["dashboard", "daily"],
-  description: "Row-level attribution view for BI tools: one row per touchpoint per conversion per model. Aggregate in the BI tool by SUMming attributed_credit and attributed_value_usd, and COUNT(DISTINCT conversion_id) for conversion counts. For pre-aggregated channel-level metrics, point your BI tool at attribution_models.cross_channel_comparison instead — mixing row-level facts with pre-aggregated channel totals produces nonsensical numbers in Looker Studio."
+  description: "Row-level attribution view for BI tools: one row per touchpoint per conversion per model. Aggregate in the BI tool by SUMming attributed_credit and attributed_value_usd, and COUNT(DISTINCT conversion_id) for conversion counts. For pre-aggregated channel-level metrics, point your BI tool at attribution_models.cross_channel_comparison instead — mixing row-level facts with pre-aggregated channel totals produces nonsensical numbers in Data Studio."
 }
 
 SELECT

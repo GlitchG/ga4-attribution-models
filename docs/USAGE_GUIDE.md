@@ -16,7 +16,7 @@
 5. [Running the Pipeline](#5-running-the-pipeline)
 6. [Understanding the Output](#6-understanding-the-output)
 7. [Attribution Models Explained](#7-attribution-models-explained)
-8. [Looker Studio Dashboards](#8-looker-studio-dashboards)
+8. [Data Studio Dashboards](#8-data-studio-dashboards)
 9. [Cost Module (Optional ROAS)](#9-cost-module-optional-roas)
 10. [Validation & Testing](#10-validation--testing)
 11. [Troubleshooting](#11-troubleshooting)
@@ -38,7 +38,7 @@ Unlike GA4's built-in attribution reports (which only show one model at a time a
 - 19-channel taxonomy with brand vs non-brand split
 - Automatic source extraction that works with any GA4 export version
 - Full ecommerce payload plus click IDs, page context, and privacy fields
-- A single mart table that feeds into Looker Studio, Tableau, or any BI tool
+- A single mart table that feeds into Data Studio (formerly Looker Studio), Tableau, or any BI tool
 - Optional cost module for ROAS, CPA, and marginal revenue
 
 ### What Changed in v2.0
@@ -460,9 +460,9 @@ Features: **19 binary channel flags** (the same 19 channels listed in §4.2). `c
 
 ---
 
-## 8. Looker Studio Dashboards
+## 8. Data Studio Dashboards
 
-For detailed step-by-step visualisation instructions, see [`LOOKER_STUDIO_GUIDE.md`](LOOKER_STUDIO_GUIDE.md).
+For detailed step-by-step visualisation instructions, see [`DATA_STUDIO_GUIDE.md`](DATA_STUDIO_GUIDE.md).
 
 **Quick recipe:**
 1. Connect `dashboard.attribution_dashboard` as a BigQuery custom query data source

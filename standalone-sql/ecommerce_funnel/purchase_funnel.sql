@@ -2,8 +2,8 @@
 -- Tracks users through: view_item → add_to_cart → begin_checkout → purchase
 -- Reports drop-off rates between each sequential stage
 
-DECLARE start_date STRING DEFAULT '20210101';
-DECLARE end_date STRING DEFAULT '20210131';
+DECLARE start_date STRING DEFAULT '20201101';
+DECLARE end_date STRING DEFAULT '20201220';
 
 WITH funnel_events AS (
   SELECT

@@ -4,11 +4,37 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- **Data Studio rebrand (April 2026).** Google reverted the Looker Studio rebrand on 11 April 2026; the product is "Data Studio" again. Folder `looker-studio/` → `data-studio/`. URL `lookerstudio.google.com` → `datastudio.google.com`. All user-facing strings in `README.md`, `data-studio/**`, `docs/**`, `standalone-sql/**`, `definitions/**` (description fields) updated. Historical CHANGELOG mentions of the rebrand kept verbatim — the only forward-looking phrase that names both is "Data Studio (formerly Looker Studio)" on first mention per file. The `Looker` enterprise BI product is unrelated and unchanged.
+- **`data-studio/README.md`** — added a naming-note paragraph at the top explaining the April 2026 reversion (existing reports transition automatically, URLs moved).
+
+### Fixed
+- **Standalone SQL date range** — every `DECLARE start_date / end_date` in `standalone-sql/{attribution_models,dashboard,ecommerce_funnel,user_journey,data-preparation}/*.sql` was hardcoded to `20210101`/`20210131`. The public sample window used in `includes/constants.js` is `20201101`/`20201220`, so out-of-the-box runs scanned partitions with no data and produced empty result sets. Realigned all standalone SQL to `20201101`/`20201220` (verified via `grep -rn "20210101\|20210131" standalone-sql/` → no matches).
+- **`standalone-sql/dashboard/funnel_dashboard.sql` removed.** Its output schema (`step, users, pct_of_start`) was incompatible with the Dataform `dashboard.funnel_dashboard` view schema (`stage_num, stage, unique_users, unique_sessions, total_events, stage_revenue_usd, pct_of_top_users, pct_of_top_sessions, abandonment_rate_pct`), so the Data Studio chart recipes in the README couldn't possibly work against the standalone copy. The Dataform pipeline is now the only path for the funnel dashboard; `data-studio/README.md` documents the removal.
+- **`cross_channel_comparison.sqlx`** — added `variance_from_last_click_usd` column computed server-side via window function (`SUM(CASE model='last_click' …) OVER (PARTITION BY conversion_event, channel)`). Data Studio calculated fields don't support window functions, so the "Variance from Last Click" chart in the dashboard guide previously had no working implementation. With the column materialised, the chart binds to it directly with zero calculated-field logic.
+- **`data-studio/dashboard-config.json`** — every chart referenced columns that don't exist in the actual schema. Realigned to the real Dataform output:
+  - `cross_channel_comparison` charts used `attributed_value_usd` / `attributed_credit` / `aov_usd` / `event_date`; correct columns are `total_value_usd` / `total_credit` / `avg_attributed_value_usd` (and there's no date column on this view).
+  - Funnel charts used `funnel_step` / `user_count` / `drop_off_rate` / `cart_abandonment_rate` / `funnel_step_order`; correct columns are `stage` / `unique_users` / `pct_of_top_users` / `abandonment_rate_pct` / `stage_num`. Cart-abandonment chart now filters `stage_num = 99`; funnel charts filter `stage_num < 99`.
+  - Path charts used `path` (the ARRAY column, which won't render) and a non-existent `conversion_count`; correct dimension is `path_string`, count via Record Count.
+  - BQML weights chart bound to `processed_input` but the custom query stripped that column via `EXCEPT(model, processed_input, expected_value)`. Replaced with `SELECT processed_input, weight FROM ML.WEIGHTS(...)`.
+  - Removed the "Model Precision" scorecard that averaged ML.WEIGHTS values — weights aren't precision. Added a note pointing to `ML.EVALUATE()` for real accuracy metrics.
+  - Removed `roas` / `cpa` calculated fields that referenced a non-existent `cost_usd` column on `cross_channel_comparison`. ROAS lives in the optional cost module (`attribution_with_roas`); added a `calculated_fields_note` explaining the correct setup.
+  - Added `daily_traffic_overview` and the new `attribution_dashboard` columns (`user_pseudo_id`, `conversion_date`) to the data-source list, plus a `variance_from_last_click` table chart binding to the new server-side column.
+- **`data-studio/create_dashboard.py` deleted.** Google's Data Studio REST API is a restricted partner API, so the script raised `RuntimeError` for >99% of users by design. Keeping broken-for-most code implied an automated path that doesn't exist for the public. The `dashboard-config.json` spec stays — it's still useful as a structured reference for manual recreation and QA, and as a starting point for anyone who does have partner access.
+
+### Cleanup
+- **`data-studio/README.md`** — slimmed from 47 lines duplicating the dashboard guide down to a brief pointer (table of "you want to… open this"). Removed duplicate Quick Start and dashboard-page descriptions that are now canonically in `docs/DATA_STUDIO_GUIDE.md` and `docs/USAGE_GUIDE.md`.
+- **`docs/DATA_STUDIO_GUIDE.md`** —
+  - Title typo (`DATA Studio` → `Data Studio`).
+  - "three-page" overview → "four-page" to match the actual page layout (Attribution / Funnel / Paths / Top-of-Funnel Traffic).
+  - Appendix A: replaced stale `purchase_revenue` field references (renamed to `conversion_value_local` in v2.0) in both the attribution and paths data-source tables. Added `user_pseudo_id`, `conversion_date`, and `value_mode` to the attribution table. Added new sections for `daily_traffic_overview` and `cross_channel_comparison` (including the new `variance_from_last_click_usd` column).
+  - Appendix B "Quick-Start Dashboard Template" rewritten to use the real column names (`total_value_usd` instead of `attributed_value_usd` for `cross_channel_comparison` charts, etc.), to bind to the right data source per page, and to include the new Page 4 (Top-of-Funnel Traffic).
+
 ## [2.0.4] — 2026-05-13
 
 ### Added
-- **`dashboard.daily_traffic_overview`** — new pre-aggregated view (date × channel × source × medium) with `unique_users`, `total_sessions`, and `sessions_per_user`. Sourced from `stg_ga4_sessions`, so it captures every visitor — not just users who converted. Use this for top-of-funnel traffic charts in Looker Studio without having to wrestle with distinct counts at row level.
-- **`dashboard.attribution_dashboard`** — added `user_pseudo_id` (so BI tools can `COUNT(DISTINCT)` converting users per channel/model) and `conversion_date` (a `DATE` column derived from `conversion_ts`, safer than relying on Looker Studio to parse the timestamp).
+- **`dashboard.daily_traffic_overview`** — new pre-aggregated view (date × channel × source × medium) with `unique_users`, `total_sessions`, and `sessions_per_user`. Sourced from `stg_ga4_sessions`, so it captures every visitor — not just users who converted. Use this for top-of-funnel traffic charts in Data Studio (formerly Looker Studio) without having to wrestle with distinct counts at row level.
+- **`dashboard.attribution_dashboard`** — added `user_pseudo_id` (so BI tools can `COUNT(DISTINCT)` converting users per channel/model) and `conversion_date` (a `DATE` column derived from `conversion_ts`, safer than relying on Data Studio to parse the timestamp).
 - **`docs/DATA_STUDIO_GUIDE.md`** — new §9 "Users and Sessions" with five recipes for users/sessions/traffic-mix charts spanning both the converted-journey view and the top-of-funnel view. New §10 "Common Pitfalls" enumerates the 10 most common visualization mistakes this dataset triggers (model filter, currency mixing, count-mode NULLs, timestamp type, source vs channel granularity, NULL transaction_id, public-sample `Unknown`, BQML sparsity, funnel UNION quirk, path_length outliers) with the fix for each.
 
 ## [2.0.3] — 2026-05-13
@@ -17,7 +43,7 @@ All notable changes to this project are documented in this file.
 - **`attr_data_driven_bqml.sqlx`** — `pred_all` CTE referenced dimension columns (`conversion_event`, `conversion_value_usd`, etc.) in its outer SELECT, but the inner `ML.PREDICT` subquery only listed the 19 channel flags. BigQuery `ML.PREDICT` only emits columns present in its input, so the query failed at compile time with `Unrecognized name: conversion_event`. Added the dimension columns to the inner SELECT so they pass through.
 
 ### Changed (breaking for BI users)
-- **`dashboard.attribution_dashboard`** — removed `channel_total_value_usd`, `channel_total_conversions`, and `aov_usd` columns. These were pre-aggregated channel-level totals duplicated onto every row-level fact, which made Data Studio / Looker Studio charts produce nonsensical numbers (either repeated identical rows with no aggregation, or N× inflated values when SUMmed). For channel-level totals, point your BI tool at `attribution_models.cross_channel_comparison` (which is correctly pre-aggregated). For AOV, create a calculated field `SUM(attributed_value_usd) / SUM(attributed_credit)` filtered to a single model — see `docs/DATA_STUDIO_GUIDE.md`.
+- **`dashboard.attribution_dashboard`** — removed `channel_total_value_usd`, `channel_total_conversions`, and `aov_usd` columns. These were pre-aggregated channel-level totals duplicated onto every row-level fact, which made Data Studio (formerly Looker Studio) charts produce nonsensical numbers (either repeated identical rows with no aggregation, or N× inflated values when SUMmed). For channel-level totals, point your BI tool at `attribution_models.cross_channel_comparison` (which is correctly pre-aggregated). For AOV, create a calculated field `SUM(attributed_value_usd) / SUM(attributed_credit)` filtered to a single model — see `docs/DATA_STUDIO_GUIDE.md`.
 - **`docs/DATA_STUDIO_GUIDE.md`** — added an explicit "Granularity warning" callout before any chart instructions, replaced the `AVG(aov_usd)` scorecard recipe with a calculated-field recipe that produces correct numbers, and removed the `channel_total_*` / `aov_usd` entries from the field reference table.
 
 ## [2.0.2] — 2026-05-12
@@ -42,7 +68,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed (CI / scripts)
 - **`.github/workflows/test-sql.yml`** — SQLFluff now lints only `standalone-sql/` (plain SQL). Dataform `.sqlx` files contain JS template expressions (`${ref(...)}`, etc.) that aren't valid BigQuery SQL and produced false positives that were swallowed by `|| true`. Dry-run job now runs automatically when `GCP_SERVICE_ACCOUNT_KEY` is configured instead of being hardcoded `if: false`. Triggers extended to `.sqlx` files.
-- **`looker-studio/create_dashboard.py`** — removed hardcoded `/home/hermes/...` service-account path; credentials now via ADC only. Added `RuntimeError` with documentation that the Looker Studio REST API is partner-only (`--force` escape hatch for users who have partner access).
+- **`data-studio/create_dashboard.py`** — removed hardcoded `/home/hermes/...` service-account path; credentials now via ADC only. Added `RuntimeError` with documentation that the Data Studio REST API is partner-only (`--force` escape hatch for users who have partner access).
 
 ### Changed (docs / public-sample readiness)
 - **`workflow_settings.yaml`** — `defaultProject` is now the placeholder `your-gcp-project-id` (was a personal project name that would fail for everyone else). End date extended from `20201220` → `20210131` so all public-sample partitions are available. Inline comments explain every var.

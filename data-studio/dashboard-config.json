@@ -1,0 +1,321 @@
+{
+  "_comment": "Data Studio Dashboard Configuration for GA4 Attribution Models. This is a structured spec — Data Studio has no native JSON import. Use this as (1) a precise reference for manual recreation following docs/DATA_STUDIO_GUIDE.md, or (2) a QA checklist (column names, filters, chart types). All field names match the actual Dataform output schema (see definitions/**/*.sqlx).",
+  "report_meta": {
+    "name": "GA4 Attribution Models v2.0 — Cross-Model Comparison",
+    "theme": "Simple White",
+    "default_date_range": "auto",
+    "currency": "USD"
+  },
+  "data_sources": [
+    {
+      "id": "ds_cross_channel",
+      "name": "Cross Channel Comparison",
+      "connector": "BIG_QUERY",
+      "project_id": "${YOUR_PROJECT_ID}",
+      "dataset": "attribution_models",
+      "table": "cross_channel_comparison",
+      "type": "table",
+      "_schema_note": "Columns: model, conversion_event, value_mode, channel, attributed_conversions, total_credit, total_value_usd, total_value_local, avg_attributed_value_usd, avg_attributed_value_local, variance_from_last_click_usd. NOTE: no date column — this view is point-in-time aggregated across the whole pipeline window.",
+      "fields_override": {
+        "total_value_usd": { "type": "NUMBER", "aggregation": "SUM" },
+        "total_value_local": { "type": "NUMBER", "aggregation": "SUM" },
+        "total_credit": { "type": "NUMBER", "aggregation": "SUM" },
+        "attributed_conversions": { "type": "NUMBER", "aggregation": "SUM" },
+        "avg_attributed_value_usd": { "type": "NUMBER", "aggregation": "AVERAGE" },
+        "variance_from_last_click_usd": { "type": "NUMBER", "aggregation": "SUM" }
+      }
+    },
+    {
+      "id": "ds_attribution_dashboard",
+      "name": "Attribution Dashboard (Row-Level)",
+      "connector": "BIG_QUERY",
+      "project_id": "${YOUR_PROJECT_ID}",
+      "dataset": "dashboard",
+      "table": "attribution_dashboard",
+      "type": "table",
+      "_schema_note": "One row per touchpoint per conversion per model. ALWAYS add a model filter or you'll multiply numbers by 8.",
+      "fields_override": {
+        "conversion_ts": { "type": "DATE_TIME", "aggregation": "NONE" },
+        "conversion_date": { "type": "DATE", "aggregation": "NONE" },
+        "attributed_value_usd": { "type": "NUMBER", "aggregation": "SUM" },
+        "attributed_value_local": { "type": "NUMBER", "aggregation": "SUM" },
+        "attributed_credit": { "type": "NUMBER", "aggregation": "SUM" },
+        "path_length": { "type": "NUMBER", "aggregation": "AVERAGE" }
+      }
+    },
+    {
+      "id": "ds_paths",
+      "name": "Paths Dashboard",
+      "connector": "BIG_QUERY",
+      "project_id": "${YOUR_PROJECT_ID}",
+      "dataset": "dashboard",
+      "table": "paths_dashboard",
+      "type": "table",
+      "_schema_note": "Columns include path_string (human-readable channel sequence) and path (ARRAY<STRUCT>). Use path_string in charts; path is for SQL drill-down only."
+    },
+    {
+      "id": "ds_funnel",
+      "name": "Funnel Dashboard",
+      "connector": "BIG_QUERY",
+      "project_id": "${YOUR_PROJECT_ID}",
+      "dataset": "dashboard",
+      "table": "funnel_dashboard",
+      "type": "table",
+      "_schema_note": "stage_num 1–5 = purchase funnel; stage_num=99 = cart abandonment. Filter to one or the other per chart — they share a UNION."
+    },
+    {
+      "id": "ds_daily_traffic",
+      "name": "Daily Traffic Overview",
+      "connector": "BIG_QUERY",
+      "project_id": "${YOUR_PROJECT_ID}",
+      "dataset": "dashboard",
+      "table": "daily_traffic_overview",
+      "type": "table",
+      "_schema_note": "Pre-aggregated daily users/sessions per channel × source × medium. Use for top-of-funnel charts; safe to SUM without a model filter."
+    },
+    {
+      "id": "ds_bqml_weights",
+      "name": "BQML Feature Weights",
+      "connector": "BIG_QUERY",
+      "project_id": "${YOUR_PROJECT_ID}",
+      "query": "SELECT processed_input, weight FROM ML.WEIGHTS(MODEL `${YOUR_PROJECT_ID}.ml.attr_data_driven_model`) ORDER BY ABS(weight) DESC",
+      "type": "custom_query",
+      "_schema_note": "Logistic-regression weights, one row per channel-flag feature."
+    }
+  ],
+  "pages": [
+    {
+      "name": "Attribution Comparison",
+      "tab_name": "Attribution",
+      "charts": [
+        {
+          "id": "chart_channel_by_model",
+          "type": "STACKED_COLUMN",
+          "title": "Channel Credit by Model",
+          "data_source": "ds_cross_channel",
+          "dimensions": ["channel"],
+          "breakdown_dimension": "model",
+          "metric": { "field": "total_value_usd", "aggregation": "SUM" },
+          "sort": { "field": "total_value_usd", "order": "DESCENDING" },
+          "filter": [{ "field": "conversion_event", "operator": "EQUALS", "value": "purchase" }],
+          "position": { "x": 0, "y": 80, "width": 600, "height": 300 },
+          "style": {
+            "legend_position": "RIGHT",
+            "show_data_labels": false,
+            "stacking": "STANDARD",
+            "axis_title_x": "Channel",
+            "axis_title_y": "Attributed Value (USD)"
+          }
+        },
+        {
+          "id": "chart_model_selector",
+          "type": "TABLE",
+          "title": "Model Summary",
+          "data_source": "ds_cross_channel",
+          "dimensions": ["model"],
+          "metrics": [
+            { "field": "total_value_usd", "aggregation": "SUM", "alias": "Total Value (USD)" },
+            { "field": "attributed_conversions", "aggregation": "SUM", "alias": "Conversions" },
+            { "field": "avg_attributed_value_usd", "aggregation": "AVERAGE", "alias": "Avg Attributed Value" }
+          ],
+          "sort": { "field": "total_value_usd", "order": "DESCENDING" },
+          "filter": [{ "field": "conversion_event", "operator": "EQUALS", "value": "purchase" }],
+          "position": { "x": 620, "y": 80, "width": 300, "height": 300 },
+          "style": {
+            "show_row_numbers": false,
+            "show_heatmap": false
+          }
+        },
+        {
+          "id": "chart_channel_scorecards",
+          "type": "SCORECARD_GRID",
+          "title": "Top Channels",
+          "data_source": "ds_cross_channel",
+          "breakdown_dimension": "channel",
+          "metric": { "field": "total_value_usd", "aggregation": "SUM" },
+          "limit": 6,
+          "filter": [
+            { "field": "model", "operator": "EQUALS", "value": "last_click" },
+            { "field": "conversion_event", "operator": "EQUALS", "value": "purchase" }
+          ],
+          "position": { "x": 0, "y": 400, "width": 920, "height": 120 },
+          "style": {
+            "comparison_enabled": false,
+            "sparkline_enabled": false
+          }
+        },
+        {
+          "id": "chart_variance_from_last_click",
+          "type": "TABLE",
+          "title": "Variance from Last Click (USD)",
+          "data_source": "ds_cross_channel",
+          "dimensions": ["model", "channel"],
+          "metrics": [
+            { "field": "variance_from_last_click_usd", "aggregation": "SUM", "alias": "Variance vs Last Click" }
+          ],
+          "sort": { "field": "variance_from_last_click_usd", "order": "DESCENDING" },
+          "filter": [{ "field": "conversion_event", "operator": "EQUALS", "value": "purchase" }],
+          "position": { "x": 0, "y": 540, "width": 920, "height": 300 },
+          "style": {
+            "show_row_numbers": false,
+            "conditional_formatting": { "type": "DIVERGING", "midpoint": 0 }
+          },
+          "note": "Materialised server-side in cross_channel_comparison.sqlx via window function; Data Studio calculated fields don't support window functions."
+        },
+        {
+          "id": "control_model_filter",
+          "type": "DROP_DOWN_LIST",
+          "title": "Filter by Model",
+          "data_source": "ds_cross_channel",
+          "dimension": "model",
+          "position": { "x": 0, "y": 20, "width": 200, "height": 40 },
+          "apply_to": ["chart_channel_by_model", "chart_channel_scorecards"]
+        }
+      ]
+    },
+    {
+      "name": "Funnel Analysis",
+      "tab_name": "Funnel",
+      "charts": [
+        {
+          "id": "chart_funnel_bar",
+          "type": "BAR",
+          "title": "Purchase Funnel",
+          "data_source": "ds_funnel",
+          "dimensions": ["stage"],
+          "metric": { "field": "unique_users", "aggregation": "SUM" },
+          "sort": { "field": "stage_num", "order": "ASCENDING" },
+          "filter": [{ "field": "stage_num", "operator": "LESS_THAN", "value": 99 }],
+          "position": { "x": 0, "y": 80, "width": 500, "height": 300 },
+          "style": {
+            "bar_mode": "HORIZONTAL",
+            "show_data_labels": true
+          },
+          "note": "stage_num=99 is the cart-abandonment row (different grain); the filter excludes it from the funnel chart."
+        },
+        {
+          "id": "chart_funnel_pct_of_top",
+          "type": "LINE",
+          "title": "% of Top of Funnel by Stage",
+          "data_source": "ds_funnel",
+          "dimensions": ["stage"],
+          "metric": { "field": "pct_of_top_users", "aggregation": "AVERAGE" },
+          "sort": { "field": "stage_num", "order": "ASCENDING" },
+          "filter": [{ "field": "stage_num", "operator": "LESS_THAN", "value": 99 }],
+          "position": { "x": 520, "y": 80, "width": 400, "height": 300 },
+          "style": {
+            "axis_title_y": "% of Top of Funnel",
+            "line_style": "LINE"
+          },
+          "note": "pct_of_top_users is cumulative (stage / top stage). For step-to-step drop-off, derive in BI with a window calc field over previous stage."
+        },
+        {
+          "id": "chart_cart_abandonment",
+          "type": "SCORECARD",
+          "title": "Cart Abandonment Rate",
+          "data_source": "ds_funnel",
+          "metric": { "field": "abandonment_rate_pct", "aggregation": "AVERAGE" },
+          "filter": [{ "field": "stage_num", "operator": "EQUALS", "value": 99 }],
+          "position": { "x": 0, "y": 20, "width": 200, "height": 40 },
+          "style": {
+            "comparison_enabled": true,
+            "comparison_label": "Industry avg ~70%"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Path Analysis",
+      "tab_name": "Paths",
+      "charts": [
+        {
+          "id": "chart_top_paths",
+          "type": "TABLE",
+          "title": "Top Conversion Paths",
+          "data_source": "ds_paths",
+          "dimensions": ["path_string"],
+          "metrics": [
+            { "field": "record_count", "aggregation": "COUNT", "alias": "Conversions" },
+            { "field": "conversion_value_usd", "aggregation": "SUM", "alias": "Revenue (USD)" }
+          ],
+          "sort": { "field": "record_count", "order": "DESCENDING" },
+          "filter": [{ "field": "conversion_event", "operator": "EQUALS", "value": "purchase" }],
+          "limit": 20,
+          "position": { "x": 0, "y": 80, "width": 600, "height": 350 },
+          "style": {
+            "show_row_numbers": true
+          },
+          "note": "path is an ARRAY in the source; use path_string (the comma-separated channel sequence) for display."
+        },
+        {
+          "id": "chart_path_length_hist",
+          "type": "COLUMN",
+          "title": "Path Length Distribution",
+          "data_source": "ds_paths",
+          "dimensions": ["path_length"],
+          "metric": { "field": "record_count", "aggregation": "COUNT", "alias": "Conversions" },
+          "sort": { "field": "path_length", "order": "ASCENDING" },
+          "filter": [
+            { "field": "conversion_event", "operator": "EQUALS", "value": "purchase" }
+          ],
+          "position": { "x": 620, "y": 80, "width": 300, "height": 350 },
+          "style": {
+            "axis_title_x": "Number of Touchpoints",
+            "axis_title_y": "Conversions"
+          },
+          "note": "No path_length cap by default — long paths can be genuine high-engagement customers, not just bots. If you want to bucket the tail for readability, add a calculated field: CASE WHEN path_length >= 10 THEN '10+' ELSE CAST(path_length AS STRING) END. Only filter path_length <= 50 if you're specifically excluding bot extremes."
+        }
+      ]
+    },
+    {
+      "name": "Top-of-Funnel Traffic",
+      "tab_name": "Traffic",
+      "charts": [
+        {
+          "id": "chart_users_by_channel",
+          "type": "TIME_SERIES",
+          "title": "Daily Users by Channel",
+          "data_source": "ds_daily_traffic",
+          "dimensions": ["session_date"],
+          "breakdown_dimension": "channel",
+          "metric": { "field": "unique_users", "aggregation": "SUM" },
+          "sort": { "field": "session_date", "order": "ASCENDING" },
+          "position": { "x": 0, "y": 80, "width": 920, "height": 350 },
+          "style": {
+            "line_style": "LINE"
+          }
+        }
+      ]
+    },
+    {
+      "name": "BQML Deep-Dive",
+      "tab_name": "Data-Driven ML",
+      "charts": [
+        {
+          "id": "chart_bqml_weights",
+          "type": "BAR",
+          "title": "Feature Importance (BQML Weights)",
+          "data_source": "ds_bqml_weights",
+          "dimensions": ["processed_input"],
+          "metric": { "field": "weight", "aggregation": "SUM" },
+          "sort": { "field": "weight", "order": "DESCENDING" },
+          "position": { "x": 0, "y": 80, "width": 500, "height": 300 },
+          "style": {
+            "bar_mode": "HORIZONTAL",
+            "show_data_labels": true
+          }
+        }
+      ],
+      "note": "Removed the spurious 'Model Precision' scorecard that averaged ML.WEIGHTS — weights are not a precision metric. For real model accuracy, build a second data source on ML.EVALUATE(MODEL ...) and chart precision/recall from there."
+    }
+  ],
+  "interactions": [
+    {
+      "type": "FILTER_CONTROL",
+      "source": "control_model_filter",
+      "targets": ["chart_channel_by_model", "chart_channel_scorecards"],
+      "behavior": "SINGLE_SELECT"
+    }
+  ],
+  "calculated_fields_note": "ROAS / CPA were previously listed here against cross_channel_comparison, but that table has no cost_usd column. Cost data lives in the optional cost module's attribution_with_roas table (definitions/cost/attribution_with_roas.sqlx). To chart ROAS, add attribution_with_roas as a separate Data Studio data source and SUM(attributed_value_usd) / SUM(cost_usd) on that data source instead. See docs/USAGE_GUIDE.md §9 for the cost module."
+}

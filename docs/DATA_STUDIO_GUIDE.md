@@ -1,4 +1,4 @@
-# DATA Studio Visualization Guide — GA4 Attribution Models
+# Data Studio Visualization Guide — GA4 Attribution Models
 
 **Project:** GA4 Attribution Models (Dataform Edition)
 **Audience:** Marketing analysts comfortable with Data Studio's UI
@@ -9,11 +9,12 @@
 
 ## Dashboard Overview
 
-This guide shows you how to build a three-page Data Studio dashboard from the Dataform output.
+This guide shows you how to build a four-page Data Studio dashboard from the Dataform output.
 
-**Page 1 — Attribution Comparison:** The "CEO slide". Compare how channel importance shifts across all 8 models.  
-**Page 2 — Funnel & Abandonment:** Visualise drop-off from add_to_cart to purchase.  
+**Page 1 — Attribution Comparison:** Compare how channel importance shifts across all 8 models.
+**Page 2 — Funnel & Abandonment:** Visualise drop-off from add_to_cart to purchase.
 **Page 3 — User Journeys:** Top conversion paths, path length distribution, device breakdown.
+**Page 4 — Top-of-Funnel Traffic:** Daily users / sessions / channel mix from `daily_traffic_overview`.
 
 ### Build Order (Dataform)
 
@@ -31,7 +32,7 @@ Or run everything at once: `dataform run`.
 | Table | Approximate Rows |
 |---|---|
 | `attribution_mart` | ~58,000 |
-| `cross_channel_comparison` | ~56 |
+| `cross_channel_comparison` | ~64 |
 | `paths_dashboard` | ~12,000 |
 | `funnel_dashboard` | 6 (5 stages + 1 cart abandonment) |
 
@@ -208,37 +209,20 @@ This gives each channel-model combination's percentage of total credited convers
 
 ### 2.4 Table: Variance from Last Click
 
-Create a table showing how much more or less credit each model gives vs. Last Click.
+Create a table showing how much more or less revenue each model attributes vs. Last Click.
 
-**Calculated Field — `variance_from_last_click`:**
-```
-attributed_value_usd - 
-SUM(CASE WHEN model = 'last_click' THEN attributed_value_usd ELSE 0 END) 
-  / SUM(CASE WHEN model = 'last_click' THEN attributed_credit ELSE 0 END) 
-  * attributed_credit
-```
-
-Simpler alternative — two calculated fields:
-
-**`revenue_last_click`** (per channel):
-```
-SUM(CASE WHEN model = 'last_click' THEN attributed_value_usd ELSE 0 END)
-```
-
-**`revenue_vs_last_click_pct`:**
-```
-(SUM(attributed_value_usd) - SUM(revenue_last_click)) / NULLIF(SUM(revenue_last_click), 0)
-```
-
-Chart settings:
+Use the pre-computed `variance_from_last_click_usd` column from the **Channel comparison (pre-agg)** data source (`attribution_models.cross_channel_comparison`). This value is computed server-side via a window function in BigQuery — Data Studio calculated fields do not support window functions, so attempting to recreate this logic as a calculated field will fail.
 
 | Setting | Value |
 |---------|-------|
+| Data source | `cross_channel_comparison` |
 | Chart type | **Table** |
 | Dimension | `channel`, `model` |
-| Metrics | `revenue_vs_last_click_pct` (as percentage) |
+| Metric | `variance_from_last_click_usd` (aggregation: SUM) |
 
-Use **conditional formatting**: green for positive (>0 means model gives MORE credit than Last Click), red for negative.
+Use **conditional formatting**: green for positive (model gives MORE revenue than Last Click for this channel), red for negative.
+
+> **Why server-side?** `variance_from_last_click_usd` requires `SUM(...) OVER (PARTITION BY channel)` to look up the last-click value for the same channel across model rows. Window functions are not available in Data Studio calculated fields — they are evaluated row-by-row without access to sibling rows in the same partition.
 
 ### 2.5 Scorecard Grid: Top Channels (Executive Summary)
 
@@ -938,18 +922,18 @@ The `dashboard.attribution_dashboard` and `cross_channel_comparison` views query
 | Field | Type | Description |
 |-------|------|-------------|
 | `model` | Text | Attribution model name: first_click, last_click, last_non_direct_click, linear, time_decay, u_shape, position_weighted, data_driven_bqml |
+| `conversion_event` | Text | Event name (e.g., 'purchase', 'add_to_cart', 'begin_checkout') |
+| `value_mode` | Text | Value interpretation mode: revenue, fixed, or count |
 | `channel` | Text | Marketing channel (19-channel taxonomy): Cross-network, Paid Search Brand, Paid Search Non-Brand, Paid Shopping, Paid Social, Paid Video, Display, Organic Search, Organic Shopping, Organic Social, Organic Video, Email, SMS, Affiliate, Audio, Mobile Push, Referral, Direct, Unknown |
+| `user_pseudo_id` | Text | GA4 user identifier — use `COUNT(DISTINCT user_pseudo_id)` for converting-user counts |
 | `conversion_id` | Text | Globally unique conversion identifier |
 | `conversion_ts` | DateTime | Timestamp of the conversion event |
-| `conversion_event` | Text | Event name (e.g., 'purchase', 'generate_lead', 'subscribe') |
-| `transaction_id` | Text | Ecommerce transaction ID (may be NULL for non-purchase conversions) |
-| `purchase_revenue` | Number | Revenue in local currency |
+| `conversion_date` | Date | Pre-cast DATE column — safer than relying on Data Studio to parse `conversion_ts` |
+| `transaction_id` | Text | Ecommerce transaction ID (NULL for non-purchase conversions) |
+| `conversion_value_local` | Number | Revenue in the conversion's own currency |
 | `conversion_value_usd` | Number | Revenue converted to USD |
-| `value_mode` | Text | Value interpretation mode: revenue, fixed, or count |
 | `path_length` | Number | Number of touchpoints in the conversion journey |
-| `source` | Text | Traffic source (e.g., google, bing, direct) |
-| `medium` | Text | Traffic medium (e.g., organic, cpc, referral) |
-| `campaign` | Text | Campaign name (if tagged) |
+| `source` / `medium` / `campaign` | Text | Touchpoint UTMs |
 | `attributed_credit` | Number (0–1) | Fractional credit assigned by the model (1.0 = 100%) |
 | `attributed_value_usd` | Number | Revenue in USD × attributed_credit |
 | `attributed_value_local` | Number | Revenue in local currency × attributed_credit |
@@ -979,15 +963,37 @@ The `dashboard.attribution_dashboard` and `cross_channel_comparison` views query
 | `conversion_ts` | DateTime | Conversion timestamp |
 | `conversion_event` | Text | Event name (e.g., 'purchase') |
 | `transaction_id` | Text | Ecommerce transaction ID |
-| `purchase_revenue` | Number | Revenue in local currency |
+| `conversion_value_local` | Number | Revenue in the conversion's own currency |
 | `conversion_value_usd` | Number | Revenue in USD |
 | `path_length` | Number | Number of touchpoints |
-| `path` | Array / JSON | Full path as array of touchpoint structs |
+| `path` | Array / JSON | Full path as array of touchpoint structs — do NOT bind to chart dimensions; use `path_string` instead |
 | `path_string` | Text | Channel path as string ("Organic Search > Direct > Referral") |
 | `device_category` | Text | Device: mobile, desktop, tablet |
 | `device_os` | Text | Operating system |
 | `country` | Text | Country name |
 | `city` | Text | City name |
+
+### `dashboard.daily_traffic_overview` (Top-of-Funnel data source)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `session_date` | Date | Date the session started (UTC) |
+| `channel` | Text | 19-channel grouping |
+| `source` / `medium` | Text | Raw GA4 source/medium |
+| `unique_users` | Number | Pre-aggregated distinct user count for this date × channel — set Data Studio aggregation to **SUM** (not COUNT_DISTINCT) |
+| `total_sessions` | Number | Pre-aggregated session count — also use **SUM** |
+| `sessions_per_user` | Number | Daily ratio; for period totals create a calculated field `SUM(total_sessions) / SUM(unique_users)` |
+
+### `attribution_models.cross_channel_comparison` (Channel summary data source)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `model` / `conversion_event` / `value_mode` / `channel` | Text | Grain — one row per combination |
+| `attributed_conversions` | Number | Distinct conversions credited |
+| `total_credit` | Number | Sum of `attributed_credit` (≈ conversion count under this model) |
+| `total_value_usd` / `total_value_local` | Number | Pre-summed attributed revenue |
+| `avg_attributed_value_usd` / `avg_attributed_value_local` | Number | `total_value / total_credit` — analogue of AOV |
+| `variance_from_last_click_usd` | Number | This model's `total_value_usd` minus the same channel's last-click value. Materialised server-side via window function — Data Studio can't compute this as a calculated field |
 
 ---
 
@@ -995,23 +1001,26 @@ The `dashboard.attribution_dashboard` and `cross_channel_comparison` views query
 
 To build a complete dashboard in ~20 minutes, follow this minimal recipe:
 
-**Page 1 — Attribution Overview:**
-1. 4 scorecards (total conversions, revenue USD, revenue local, AOV) — top row
-2. Clustered bar chart: `channel` × `model` with `SUM(attributed_value_usd)` — center
-3. Pivot table: `channel` rows, `model` columns, `SUM(attributed_value_usd)` — bottom
-4. Controls: Date range + Model selector — top
+**Page 1 — Attribution Overview** (data source: `cross_channel_comparison`)
+1. 3 scorecards: `SUM(attributed_conversions)`, `SUM(total_value_usd)`, calculated AOV `SUM(total_value_usd)/SUM(total_credit)` — top row
+2. Clustered bar chart: `channel` × `model` with `SUM(total_value_usd)` — center
+3. Pivot table: `channel` rows, `model` columns, `SUM(total_value_usd)` — bottom
+4. Controls: Model selector — top. Filter `conversion_event = 'purchase'` on every chart.
 
-**Page 2 — Funnel & Conversion:**
-1. Funnel chart: `stage` → `unique_users` — center
-2. Cart abandonment scorecard — top
-3. Drop-off bar chart — bottom
-4. Controls: Date range — top
+**Page 2 — Funnel & Conversion** (data source: `funnel_dashboard`)
+1. Bar chart: `stage` → `SUM(unique_users)`, sorted by `stage_num` ASC, filter `stage_num < 99` — center
+2. Cart abandonment scorecard: `AVG(abandonment_rate_pct)`, filter `stage_num = 99` — top
+3. % of top of funnel line: dim `stage`, metric `AVG(pct_of_top_users)`, filter `stage_num < 99` — bottom
 
-**Page 3 — User Journeys:**
-1. Table: `path_string` + `conversion_value_usd` — center
-2. Path length bar chart — right sidebar
-3. Device pie chart — left sidebar
-4. Controls: Date range + Path length slider — top
+**Page 3 — User Journeys** (data source: `paths_dashboard`)
+1. Table: dim `path_string`, metric Record Count + `SUM(conversion_value_usd)`, sort DESC, limit 20
+2. Column chart: dim `path_length`, metric Record Count (no upper-bound filter — bucket the tail with a calculated field if needed)
+3. Device pie chart: dim `device_category`, metric Record Count
+
+**Page 4 — Top-of-Funnel Traffic** (data source: `daily_traffic_overview`)
+1. Time series: dim `session_date`, breakdown `channel`, metric `SUM(unique_users)`
+2. 100% stacked bar: dim `channel`, metric `SUM(total_sessions)` — channel-mix snapshot
+3. Scorecard: calculated field `SUM(total_sessions)/SUM(unique_users)` = sessions per user
 
 ---
 
