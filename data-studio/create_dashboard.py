@@ -136,34 +136,45 @@ def main():
     ds_funnel = add_bigquery_datasource(
         service, report_id, args.project, "dashboard", "funnel_dashboard", "Funnel"
     )
+    # ML.WEIGHTS columns: processed_input (TEXT), weight (FLOAT64).
+    # The earlier `EXCEPT(model, processed_input, expected_value)` was wrong —
+    # it stripped the very column the chart binds to.
     ds_bqml = add_custom_query_datasource(
         service,
         report_id,
         args.project,
-        f"SELECT * EXCEPT(model, processed_input, expected_value) FROM ML.WEIGHTS(MODEL `{args.project}.{args.dataset_prefix}.attr_data_driven_model`) ORDER BY ABS(weight) DESC",
+        f"SELECT processed_input, weight FROM ML.WEIGHTS(MODEL `{args.project}.ml.attr_data_driven_model`) ORDER BY ABS(weight) DESC",
         "BQML Weights",
     )
 
     print("\nAdding pages and charts...")
     # Page 1: Attribution Comparison
+    # cross_channel_comparison schema: total_value_usd (not attributed_value_usd
+    # — that column name only exists on the row-level attribution_mart).
     page1 = service.reports().pages().create(reportId=report_id, body={"name": "Attribution"}).execute()
     print(f"  Page: Attribution -> {page1['id']}")
     add_table_chart(
-        service, report_id, ds_cross, "Model Summary", ["model"], ["attributed_value_usd"], page1["id"]
+        service, report_id, ds_cross, "Model Summary", ["model"], ["total_value_usd"], page1["id"]
     )
 
     # Page 2: Funnel
+    # funnel_dashboard schema: stage (TEXT) + stage_num (INT). user count column
+    # is unique_users, not user_count.
     page2 = service.reports().pages().create(reportId=report_id, body={"name": "Funnel"}).execute()
     print(f"  Page: Funnel -> {page2['id']}")
     add_table_chart(
-        service, report_id, ds_funnel, "Funnel Steps", ["funnel_step"], ["user_count"], page2["id"]
+        service, report_id, ds_funnel, "Funnel Steps", ["stage"], ["unique_users"], page2["id"]
     )
 
     # Page 3: Paths
+    # paths_dashboard exposes `path` (ARRAY<STRUCT>) and `path_string` (the
+    # comma-separated channel sequence). Charts use path_string; path is for
+    # SQL drill-down. There's no `conversion_count` column — paths_dashboard is
+    # one row per conversion, so revenue is the meaningful metric.
     page3 = service.reports().pages().create(reportId=report_id, body={"name": "Paths"}).execute()
     print(f"  Page: Paths -> {page3['id']}")
     add_table_chart(
-        service, report_id, ds_paths, "Top Paths", ["path"], ["conversion_count"], page3["id"]
+        service, report_id, ds_paths, "Top Paths", ["path_string"], ["conversion_value_usd"], page3["id"]
     )
 
     # Page 4: BQML
