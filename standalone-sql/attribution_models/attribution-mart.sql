@@ -5,7 +5,7 @@
 -- Note: linear model (m4) uses per-session credit to match linear-model-attribution.sql.
 
 DECLARE start_date STRING DEFAULT '20201101';
-DECLARE end_date STRING DEFAULT '20201220';
+DECLARE end_date STRING DEFAULT '20210131';
 
 CREATE OR REPLACE TABLE `your_project.your_dataset.attribution_mart` AS
 

@@ -1,9 +1,9 @@
 config {
-  type: "view",
+  type: "table",
   schema: "dashboard",
   name: "paths_dashboard",
   tags: ["dashboard", "daily"],
-  description: "Dashboard-ready view of user journey paths with conversion and revenue data."
+  description: "Dashboard-ready table of user journey paths with conversion and revenue data. Materialised (not a view) so Data Studio's repeated chart refreshes don't re-execute the underlying STRING_AGG on every page open."
 }
 
 SELECT
