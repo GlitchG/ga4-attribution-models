@@ -3,7 +3,7 @@
 -- Reports drop-off rates between each sequential stage
 
 DECLARE start_date STRING DEFAULT '20201101';
-DECLARE end_date STRING DEFAULT '20201220';
+DECLARE end_date STRING DEFAULT '20210131';
 
 WITH funnel_events AS (
   SELECT

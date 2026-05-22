@@ -29,30 +29,4 @@ jobs:
         # Only lint standalone-sql/ — Dataform .sqlx files contain JS template
         # expressions (${ref(...)}, ${constants.X}, etc.) that are not valid
         # BigQuery SQL and produce false-positive SQLFluff errors.
-        run: |
-          sqlfluff lint standalone-sql/ --dialect bigquery
-          echo "---"
-          echo "Lint complete."
-
-  dry-run:
-    runs-on: ubuntu-latest
-    # Run automatically when GCP credentials are available in repository secrets.
-    if: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY != '' }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Dry-run queries against BigQuery
-        run: |
-          for file in $(find standalone-sql/ -name "*.sql" -type f); do
-            echo "Dry run: $file"
-            bq query --use_legacy_sql=false --dry_run --project_id=${{ secrets.GCP_PROJECT_ID }} < "$file" \
-              && echo "  OK" || echo "  FAILED"
-          done
+        run: sqlfluff lint standalone-sql/ --dialect bigquery

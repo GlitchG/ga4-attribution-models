@@ -5,7 +5,7 @@
 -- Note: the public GA4 sample has very few conversions; this model needs 500+ to produce reliable weights.
 
 DECLARE start_date STRING DEFAULT '20201101';
-DECLARE end_date STRING DEFAULT '20201220';
+DECLARE end_date STRING DEFAULT '20210131';
 
 -- ============================================================================
 -- STEP 1: Create training dataset — one row per user with journey features

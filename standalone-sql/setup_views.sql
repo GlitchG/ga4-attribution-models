@@ -41,7 +41,7 @@ WITH session_event_traffic AS (
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'medium') AS medium,
     (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'campaign') AS campaign
   FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN '20201101' AND '20201220'
+  WHERE _TABLE_SUFFIX BETWEEN '20201101' AND '20210131'
     AND (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') IS NOT NULL
 ),
 session_traffic_resolved AS (
