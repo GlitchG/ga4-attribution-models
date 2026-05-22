@@ -1,5 +1,5 @@
 {
-  "_comment": "Data Studio Dashboard Configuration for GA4 Attribution Models v2.0. This is a structured spec — Data Studio does not support native JSON import. Use this as: (1) a precise reference for manual recreation, (2) input for the create_dashboard.py API script, or (3) a checklist for QA. All column names match the actual Dataform output schema (see definitions/**/*.sqlx).",
+  "_comment": "Data Studio Dashboard Configuration for GA4 Attribution Models. This is a structured spec — Data Studio has no native JSON import. Use this as (1) a precise reference for manual recreation following docs/DATA_STUDIO_GUIDE.md, or (2) a QA checklist (column names, filters, chart types). All field names match the actual Dataform output schema (see definitions/**/*.sqlx).",
   "report_meta": {
     "name": "GA4 Attribution Models v2.0 — Cross-Model Comparison",
     "theme": "Simple White",

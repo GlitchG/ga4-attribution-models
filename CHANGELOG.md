@@ -20,7 +20,15 @@ All notable changes to this project are documented in this file.
   - Removed the "Model Precision" scorecard that averaged ML.WEIGHTS values — weights aren't precision. Added a note pointing to `ML.EVALUATE()` for real accuracy metrics.
   - Removed `roas` / `cpa` calculated fields that referenced a non-existent `cost_usd` column on `cross_channel_comparison`. ROAS lives in the optional cost module (`attribution_with_roas`); added a `calculated_fields_note` explaining the correct setup.
   - Added `daily_traffic_overview` and the new `attribution_dashboard` columns (`user_pseudo_id`, `conversion_date`) to the data-source list, plus a `variance_from_last_click` table chart binding to the new server-side column.
-- **`data-studio/create_dashboard.py`** — same column corrections in the live chart-creation API calls. Model Summary now uses `total_value_usd`; Funnel Steps uses `stage` + `unique_users`; Top Paths uses `path_string`; BQML Feature Weights query rewritten to `SELECT processed_input, weight` (the previous query stripped the dimension it bound to). Also pointed the BQML data source at the correct `ml.attr_data_driven_model` schema (was `${dataset_prefix}.attr_data_driven_model`, which would 404).
+- **`data-studio/create_dashboard.py` deleted.** Google's Data Studio REST API is a restricted partner API, so the script raised `RuntimeError` for >99% of users by design. Keeping broken-for-most code implied an automated path that doesn't exist for the public. The `dashboard-config.json` spec stays — it's still useful as a structured reference for manual recreation and QA, and as a starting point for anyone who does have partner access.
+
+### Cleanup
+- **`data-studio/README.md`** — slimmed from 47 lines duplicating the dashboard guide down to a brief pointer (table of "you want to… open this"). Removed duplicate Quick Start and dashboard-page descriptions that are now canonically in `docs/DATA_STUDIO_GUIDE.md` and `docs/USAGE_GUIDE.md`.
+- **`docs/DATA_STUDIO_GUIDE.md`** —
+  - Title typo (`DATA Studio` → `Data Studio`).
+  - "three-page" overview → "four-page" to match the actual page layout (Attribution / Funnel / Paths / Top-of-Funnel Traffic).
+  - Appendix A: replaced stale `purchase_revenue` field references (renamed to `conversion_value_local` in v2.0) in both the attribution and paths data-source tables. Added `user_pseudo_id`, `conversion_date`, and `value_mode` to the attribution table. Added new sections for `daily_traffic_overview` and `cross_channel_comparison` (including the new `variance_from_last_click_usd` column).
+  - Appendix B "Quick-Start Dashboard Template" rewritten to use the real column names (`total_value_usd` instead of `attributed_value_usd` for `cross_channel_comparison` charts, etc.), to bind to the right data source per page, and to include the new Page 4 (Top-of-Funnel Traffic).
 
 ## [2.0.4] — 2026-05-13
 
