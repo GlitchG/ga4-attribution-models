@@ -3,7 +3,7 @@
 **Repository:** [github.com/GlitchG/ga4-attribution-models](https://github.com/GlitchG/ga4-attribution-models)  
 **License:** MIT  
 **Dataform version:** 3.0.55  
-**Last updated:** 2026-05-06
+**Last updated:** 2026-05-29
 
 ---
 
@@ -80,10 +80,11 @@ npm install
 gcloud auth application-default login   # or use a service account JSON
 echo '{"projectId":"YOUR_PROJECT","location":"US","credentials":"BASE64_ENCODED_JSON"}' > .df-credentials.json
 
-# Configure your GA4 dataset
+# Configure your project — the ONLY required edit is defaultProject.
 # Edit workflow_settings.yaml:
+#   defaultProject: your-gcp-project-id   # <-- REQUIRED: your GCP project ID
 #   vars:
-#     ga4_project: "your-project"
+#     ga4_project: "your-project"          # leave as bigquery-public-data for the sample
 #     ga4_dataset: "analytics_xxx"
 #     start_date: "20240101"
 #     end_date: "20240131"
@@ -110,14 +111,15 @@ dataform run --default-database=YOUR_PROJECT
 4. Create a workspace on `main`
 5. Edit `workflow_settings.yaml`:
    ```yaml
-   defaultProject: "your-gcp-project-id"
+   defaultProject: "your-gcp-project-id"   # the only REQUIRED change
    defaultLocation: "US"  # or EU region; use US for public dataset
    vars:
      ga4_project: "bigquery-public-data"
      ga4_dataset: "ga4_obfuscated_sample_ecommerce"
      start_date: "20201101"
      end_date: "20210131"
-     source_extraction_mode: "auto"
+     source_extraction_mode: "event_params"   # REQUIRED for the 2020 public sample
+     has_privacy_info: "false"                 # the public sample has no privacy_info struct
    ```
 6. Click **Compile**, then **Run**
 7. Wait 5–10 minutes. You now have ~15 tables in BigQuery.
@@ -283,12 +285,13 @@ The lookback is **exact**: the pipeline filters sessions where `session_start >=
 
 ```yaml
 vars:
-  exclude_modeled_events: "true"   # Set to "true" to exclude modeled events
+  has_privacy_info: "false"        # set "true" ONLY if your export has the privacy_info struct (2023+)
+  exclude_modeled_events: "false"  # set "true" to exclude modeled events (requires has_privacy_info: "true")
 ```
 
-When enabled, sessions with `privacy_info.uses_transient_token = 'Yes'` are excluded. All privacy fields are passed through to staging and attribution tables for auditability.
+`has_privacy_info` is the master switch: it tells the staging query whether the `privacy_info` struct exists in your export. When `true`, the consent-mode fields are passed through to staging and attribution tables for auditability. When `exclude_modeled_events` is also `true`, sessions with `privacy_info.uses_transient_token = 'Yes'` are excluded.
 
-**Note:** The public sample dataset (2020) does not contain consent mode v2 fields. These will be NULL.
+**Important:** The public sample dataset (2020) does NOT contain the `privacy_info` struct. Keep `has_privacy_info: "false"` — otherwise the staging query fails with `Unrecognized name: privacy_info`.
 
 ---
 
@@ -411,8 +414,9 @@ LIMIT 10;
 |---|---|---|---|
 | `attribution_dashboard` | `dashboard` | Every touchpoint for every conversion, with credit from all 8 models | Analysts building custom reports |
 | `cross_channel_comparison` | `attribution_models` | One row per channel × model × conversion event, pre-aggregated | Stakeholders who want summaries |
-| `paths_dashboard` | `dashboard` | Top conversion paths, path lengths, channel sequences | UX and CRO teams |
+| `paths_dashboard` | `dashboard` | Top conversion paths, path lengths, channel sequences (materialised table) | UX and CRO teams |
 | `funnel_dashboard` | `dashboard` | Purchase funnel stages, drop-off rates, cart abandonment | Ecommerce managers |
+| `daily_traffic_overview` | `dashboard` | Daily users / sessions / channel mix across ALL sessions (not just converters) | Top-of-funnel & traffic-mix reporting |
 
 ### 6.5 Individual Model Tables
 
@@ -471,10 +475,11 @@ For detailed step-by-step visualisation instructions, see [`DATA_STUDIO_GUIDE.md
 4. Add a pivot table heatmap: `channel` rows, `model` columns
 5. Add filter controls for date range, model, and channel
 
-**Three-page dashboard:**
+**Four-page dashboard:**
 - **Page 1:** Attribution Comparison (model vs channel)
 - **Page 2:** Funnel & Abandonment (stages, drop-off, cart abandonment)
 - **Page 3:** User Journeys (top paths, path length, device breakdown)
+- **Page 4:** Top-of-Funnel Traffic (daily users / sessions / channel mix from `daily_traffic_overview`)
 
 ---
 
